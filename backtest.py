@@ -39,7 +39,7 @@ def load_live(cfg: Config, limit: int) -> pd.DataFrame:
     import ccxt
     from bot.exchange import candles_to_df
 
-    client = ccxt.okx({"enableRateLimit": True})
+    client = ccxt.okx({"enableRateLimit": True, "hostname": cfg.okx_hostname})
     tf_ms = client.parse_timeframe(cfg.timeframe) * 1000
     now = client.milliseconds()
     since = now - limit * tf_ms

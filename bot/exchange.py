@@ -28,6 +28,7 @@ class OkxExchange:
             "secret": cfg.api_secret,
             "password": cfg.api_passphrase,
             "enableRateLimit": True,
+            "hostname": cfg.okx_hostname,
             "options": {"defaultType": "spot"},
         })
         if cfg.demo:

@@ -29,6 +29,8 @@ class Config:
     api_secret: str = os.getenv("OKX_API_SECRET", "")
     api_passphrase: str = os.getenv("OKX_API_PASSPHRASE", "")
     demo: bool = _b("DEMO", True)
+    # www.okx.com is unreachable from some networks; app.okx.com / my.okx.com (EEA) are alternatives
+    okx_hostname: str = os.getenv("OKX_HOSTNAME", "www.okx.com")
 
     symbol: str = os.getenv("SYMBOL", "BTC/USDT")
     timeframe: str = os.getenv("TIMEFRAME", "15m")
