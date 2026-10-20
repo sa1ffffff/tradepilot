@@ -95,11 +95,11 @@ def verdict(m: dict) -> str:
     return "no edge"
 
 
-def research(cfg, symbols, timeframes, days, offline):
+def research(cfg, symbols, timeframes, days, offline, source="okx"):
     rows = []
     for symbol in symbols:
         for tf in timeframes:
-            df = load_history(cfg, symbol, tf, days, refresh=not offline)
+            df = load_history(cfg, symbol, tf, days, refresh=not offline, source=source)
             print(f"  {symbol} {tf}: {len(df)} bars "
                   f"{df['time'].iloc[0]:%Y-%m-%d} -> {df['time'].iloc[-1]:%Y-%m-%d}", flush=True)
             everything = []
@@ -132,7 +132,8 @@ def table(rows) -> str:
 def write_report(rows, args, cfg) -> str:
     os.makedirs("reports", exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    path = os.path.join("reports", f"research_{stamp}_{cfg.execution}.md")
+    src = "" if args.source == "okx" else f"_{args.source}"
+    path = os.path.join("reports", f"research_{stamp}_{cfg.execution}{src}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Research run {stamp} UTC\n\n")
         f.write(f"{args.days} days, {FOLDS}-fold anchored walk-forward. {cost_line(cfg)}. "
@@ -219,6 +220,8 @@ def main() -> None:
     p.add_argument("--taker-fee", type=float)
     p.add_argument("--maker-fill-rate", type=float)
     p.add_argument("--offline", action="store_true", help="use cached candles only")
+    p.add_argument("--source", choices=["okx", "cryptocom"], default="okx",
+                   help="whose price history to test on; the bot always trades OKX")
     p.add_argument("--save", action="store_true", help="write the best passing strategy to strategy.json")
     p.add_argument("--force", action="store_true", help="with --save: write even if nothing passed")
     p.add_argument("--save-all", action="store_true", help="write every CANDIDATE to strategies/")
@@ -229,9 +232,10 @@ def main() -> None:
                                    ("maker_fill_rate", args.maker_fill_rate)) if v is not None}
     cfg = dataclasses.replace(cfg, **overrides)
 
-    print(f"\n  Research: {args.days} days, walk-forward out-of-sample")
+    print(f"\n  Research: {args.days} days of {args.source} candles, walk-forward out-of-sample")
     print(f"  {cost_line(cfg)}\n")
-    rows = research(cfg, args.symbols.split(","), args.timeframes.split(","), args.days, args.offline)
+    rows = research(cfg, args.symbols.split(","), args.timeframes.split(","), args.days, args.offline,
+                    args.source)
     print("\n" + table(rows))
     print(f"\n  Report: {write_report(rows, args, cfg)}")
     if args.save_all:

@@ -44,15 +44,26 @@ def public_client(hostname: str):
     return ccxt.okx({"enableRateLimit": True, "hostname": hostname})
 
 
-def load_history(cfg, symbol: str, timeframe: str, days: int, refresh: bool = True) -> pd.DataFrame:
-    """`days` of closed candles from the cache, topped up from OKX."""
+def source_client(cfg, source: str):
+    """okx (what the bot trades on) or cryptocom (a second exchange's prices,
+    to check that a result isn't a quirk of one venue's data)."""
+    if source == "okx":
+        return public_client(cfg.okx_hostname)
+    import ccxt
+    return ccxt.cryptocom({"enableRateLimit": True})
+
+
+def load_history(cfg, symbol: str, timeframe: str, days: int, refresh: bool = True,
+                 source: str = "okx") -> pd.DataFrame:
+    """`days` of closed candles from the cache, topped up from the exchange."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, f"{symbol.replace('/', '-')}_{timeframe}.csv")
+    prefix = "" if source == "okx" else f"{source}_"
+    path = os.path.join(CACHE_DIR, f"{prefix}{symbol.replace('/', '-')}_{timeframe}.csv")
     cached = pd.read_csv(path, parse_dates=["time"]) if os.path.exists(path) else None
     start = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
 
     if refresh:
-        client = public_client(cfg.okx_hostname)
+        client = source_client(cfg, source)
         if cached is not None and len(cached) and cached["time"].iloc[0] <= start:
             since = int(cached["time"].iloc[-1].value // 1_000_000) + 1
             new = fetch_closed(client, symbol, timeframe, since_ms=since)
