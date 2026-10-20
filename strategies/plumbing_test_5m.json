@@ -1,0 +1,10 @@
+{
+  "purpose": "Plumbing test only: trades several times a day so a 1-2 day demo run produces enough orders to compare with the backtest. It has no edge and loses money after costs. Never use it beyond the demo.",
+  "symbol": "BTC/USDT",
+  "timeframe": "5m",
+  "name": "ema_cross",
+  "params": {"fast": 9, "slow": 21},
+  "stop_atr": 2.0,
+  "tp_r": null,
+  "max_cost_per_r": 0
+}

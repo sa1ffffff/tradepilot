@@ -131,13 +131,19 @@ def table(rows) -> str:
 
 def write_report(rows, args, cfg) -> str:
     os.makedirs("reports", exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
-    path = os.path.join("reports", f"research_{stamp}.md")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    path = os.path.join("reports", f"research_{stamp}_{cfg.execution}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Research run {stamp} UTC\n\n")
         f.write(f"{args.days} days, {FOLDS}-fold anchored walk-forward. {cost_line(cfg)}. "
                 f"Risk {cfg.risk_fraction:.1%}/trade. "
                 "All figures are out-of-sample (last 80% of the period).\n\n")
+        n = sum(r["strategy"] != "auto" for r in rows)
+        f.write(f"**Read with care:** {n} strategy/market combinations were tested, so a few "
+                "will pass by luck alone. Trust a CANDIDATE more if the same strategy also does "
+                "well on the other symbol, survives `--execution taker`, and keeps working in a "
+                "forward demo run. The `auto` rows (picking among all strategies each fold) are "
+                "the best single estimate of what this research process is worth.\n\n")
         f.write("```\n" + table(rows) + "\n```\n\n## Parameters chosen per fold\n\n")
         for r in rows:
             f.write(f"- **{r['symbol']} {r['timeframe']} {r['strategy']}**: " +
@@ -156,6 +162,26 @@ def cost_line(cfg) -> str:
             f"{cfg.max_cost_per_r:.0%} of the risk")
 
 
+def strategy_doc(row, cfg) -> tuple[dict, str]:
+    """A strategy file for one research row; final params use the same
+    selection rule, now applied to the whole history."""
+    spec = pick(row["_cands"], row["_df"]["time"].iloc[-1] + pd.Timedelta(days=1))
+    return {
+        "symbol": row["symbol"], "timeframe": row["timeframe"], **spec.to_dict(),
+        "evidence": {k: row[k] for k in ("trades", "win_rate_pct", "profit_factor",
+                                         "total_return_pct", "max_drawdown_pct",
+                                         "folds_positive", "verdict")},
+        "costs": cost_line(cfg),
+        "researched": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+    }, spec.label()
+
+
+def write_json(path: str, doc: dict) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+
+
 def save_best(rows, cfg, force: bool) -> None:
     passing = [r for r in rows if r["verdict"] == "CANDIDATE" and r["strategy"] != "auto"]
     if not passing:
@@ -166,18 +192,21 @@ def save_best(rows, cfg, force: bool) -> None:
         passing = sorted((r for r in rows if r["strategy"] != "auto"),
                          key=lambda r: r["total_return_pct"], reverse=True)[:1]
     best = max(passing, key=lambda r: r["t_stat"])
-    # final params: the same selection rule, now on the whole history
-    spec = pick(best["_cands"], best["_df"]["time"].iloc[-1] + pd.Timedelta(days=1))
-    out = {
-        "symbol": best["symbol"], "timeframe": best["timeframe"], **spec.to_dict(),
-        "evidence": {k: best[k] for k in ("trades", "win_rate_pct", "profit_factor",
-                                          "total_return_pct", "max_drawdown_pct",
-                                          "folds_positive", "verdict")},
-        "researched": datetime.now(timezone.utc).isoformat(timespec="minutes"),
-    }
-    with open(cfg.strategy_file, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2)
-    print(f"\n  Wrote {cfg.strategy_file}: {best['symbol']} {best['timeframe']} {spec.label()}")
+    doc, label = strategy_doc(best, cfg)
+    write_json(cfg.strategy_file, doc)
+    print(f"\n  Wrote {cfg.strategy_file}: {best['symbol']} {best['timeframe']} {label}")
+
+
+def save_all(rows, cfg) -> None:
+    """Every CANDIDATE to strategies/<name>_<symbol>_<tf>.json; pick one with STRATEGY_FILE."""
+    for r in rows:
+        if r["verdict"] != "CANDIDATE" or r["strategy"] == "auto":
+            continue
+        path = os.path.join("strategies", f"{r['strategy']}_{r['symbol'].split('/')[0].lower()}_"
+                                          f"{r['timeframe']}.json")
+        doc, label = strategy_doc(r, cfg)
+        write_json(path, doc)
+        print(f"  Wrote {path}: {label}")
 
 
 def main() -> None:
@@ -192,6 +221,7 @@ def main() -> None:
     p.add_argument("--offline", action="store_true", help="use cached candles only")
     p.add_argument("--save", action="store_true", help="write the best passing strategy to strategy.json")
     p.add_argument("--force", action="store_true", help="with --save: write even if nothing passed")
+    p.add_argument("--save-all", action="store_true", help="write every CANDIDATE to strategies/")
     args = p.parse_args()
     cfg = Config()
     overrides = {k: v for k, v in (("execution", args.execution), ("maker_fee", args.maker_fee),
@@ -204,6 +234,8 @@ def main() -> None:
     rows = research(cfg, args.symbols.split(","), args.timeframes.split(","), args.days, args.offline)
     print("\n" + table(rows))
     print(f"\n  Report: {write_report(rows, args, cfg)}")
+    if args.save_all:
+        save_all(rows, cfg)
     if args.save:
         save_best(rows, cfg, args.force)
 

@@ -60,6 +60,21 @@ If nothing passes, `--save` refuses to write `strategy.json`. That isn't a bug:
 it means no strategy has shown an edge. `--save --force` writes the best one
 anyway, for testing the plumbing only.
 
+### Strategy files
+
+The bot trades whatever `STRATEGY_FILE` in `.env` points to (default
+`strategy.json`). `research.py --save-all` writes every passing strategy to
+`strategies/`, so you can switch between them:
+
+| File | Use |
+|---|---|
+| `strategies/plumbing_test_5m.json` | **Setup test only.** EMA 9/21 on 5m, several trades a day, so a 1–2 day demo run has enough orders to compare with the backtest. No edge; it loses money after costs |
+| `strategies/chandelier_trend_btc_4h.json` | research candidate, BTC 4h, ~2 trades a month |
+| `strategies/ema_cross_adx_eth_1h.json` | research candidate, ETH 1h, ~4 trades a month |
+
+The candidates trade too rarely to show anything in a day or two; they need a
+forward demo run of several weeks.
+
 ## 3. Connect your OKX demo account
 
 1. Log in at okx.com, open **Trade → Demo Trading**. The whole UI switches to simulated.

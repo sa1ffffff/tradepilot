@@ -1,0 +1,22 @@
+{
+  "symbol": "BTC/USDT",
+  "timeframe": "4h",
+  "name": "chandelier_trend",
+  "params": {
+    "trend": 100,
+    "mult": 2.5
+  },
+  "stop_atr": 2.0,
+  "tp_r": null,
+  "evidence": {
+    "trades": 56,
+    "win_rate_pct": 32.1,
+    "profit_factor": 1.82,
+    "total_return_pct": 23.22,
+    "max_drawdown_pct": -10.2,
+    "folds_positive": 3,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.080%, taker 0.100% + 2 bps slippage, 70% assumed maker fills; expected cost 0.092%/side normal, 0.120% on stops, 0.184% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-20T19:30+00:00"
+}

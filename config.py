@@ -37,7 +37,7 @@ class Config:
     poll_seconds: int = int(_f("POLL_SECONDS", 60))
 
     # which strategy to trade comes from strategy.json (written by research.py)
-    strategy_file: str = "strategy.json"
+    strategy_file: str = os.getenv("STRATEGY_FILE", "strategy.json")
 
     risk_fraction: float = _f("RISK_FRACTION", 0.01)
     max_notional_usd: float = _f("MAX_NOTIONAL_USD", 50.0)

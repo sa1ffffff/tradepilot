@@ -40,7 +40,8 @@ def load_strategy(cfg: Config) -> tuple[Config, StrategySpec]:
     with open(cfg.strategy_file, encoding="utf-8") as f:
         d = json.load(f)
     cfg = dataclasses.replace(cfg, symbol=d.get("symbol", cfg.symbol),
-                              timeframe=d.get("timeframe", cfg.timeframe))
+                              timeframe=d.get("timeframe", cfg.timeframe),
+                              max_cost_per_r=d.get("max_cost_per_r", cfg.max_cost_per_r))
     return cfg, StrategySpec.from_dict(d)
 
 
