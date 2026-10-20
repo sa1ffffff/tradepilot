@@ -58,10 +58,11 @@ class FakeExchange:
                 "average": self.price, "fee_base": fee_base,
                 "fee_quote": fee_quote + fee_base * self.price}
 
-    def market_buy(self, amount):
+    def buy(self, amount):
         return self._fill("buy", amount)
 
-    def market_sell(self, amount):
+    def sell(self, amount, urgent=False):
+        self.last_sell_urgent = urgent
         return self._fill("sell", amount)
 
 

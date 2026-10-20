@@ -10,6 +10,8 @@ import math
 from dataclasses import dataclass
 from datetime import date
 
+from bot.costs import taker_cost, too_costly
+
 
 @dataclass(frozen=True)
 class Decision:
@@ -71,9 +73,11 @@ class RiskManager:
             return Decision(False, "invalid price")
         if not stop_distance > 0 or stop_distance >= price:
             return Decision(False, "invalid stop distance")
+        if too_costly(self.cfg, price, stop_distance):
+            return Decision(False, "stop too tight for trading costs")
 
         size = position_size(equity, price, stop_distance, self.cfg.risk_fraction,
-                             self.cfg.max_notional_usd, self.cfg.fee_rate)
+                             self.cfg.max_notional_usd, taker_cost(self.cfg))
         if size < self.cfg.min_base_size:
             return Decision(False, "position below minimum size")
 

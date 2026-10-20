@@ -65,12 +65,49 @@ def _supertrend(df, mult, trend):
     return entry, ~up, max(30, trend * 3)
 
 
+# --- cost-aware variants for 1h/4h ----------------------------------------
+# Fewer, longer trades: a slow higher-timeframe trend filter, an ADX trend-strength
+# gate so chop is skipped, and exits that let winners run. Each trade then risks
+# more relative to the fixed per-trade fee.
+
+def _ema_cross_adx(df, fast, slow, adx_min):
+    f, s = ind.ema(df["close"], fast), ind.ema(df["close"], slow)
+    entry = ind.crossed_above(f, s) & (ind.adx(df) > adx_min)
+    return entry, ind.crossed_below(f, s), slow * 3
+
+
+def _breakout_htf(df, entry_n, trend):
+    """Donchian breakout only in a long-horizon uptrend with a trending ADX;
+    exit on a break of the prior 20-bar low."""
+    hi = df["high"].rolling(entry_n).max().shift(1)
+    lo = df["low"].rolling(20).min().shift(1)
+    entry = (df["close"] > hi) & (df["close"] > ind.ema(df["close"], trend)) & (ind.adx(df) > 20)
+    return entry, df["close"] < lo, trend * 2
+
+
+def _pullback_htf(df, trend, rsi_entry):
+    """Buy an RSI dip recovering through rsi_entry while price holds above both a
+    long-horizon and a 50-bar EMA; exit on RSI > 75 or loss of the long trend."""
+    t = ind.ema(df["close"], trend)
+    r = ind.rsi(df["close"], 14)
+    entry = (df["close"] > t) & (df["close"] > ind.ema(df["close"], 50)) & ind.crossed_above(r, rsi_entry)
+    return entry, (r > 75) | (df["close"] < t), trend * 2
+
+
+def _chandelier_trend(df, trend, mult):
+    """Enter when price reclaims a trend EMA with ADX confirming; trail out with
+    a chandelier exit so the trade can run."""
+    t = ind.ema(df["close"], trend)
+    entry = ind.crossed_above(df["close"], t) & (ind.adx(df) > 20)
+    return entry, df["close"] < ind.chandelier_long(df, 22, mult), trend * 2
+
+
 @dataclass(frozen=True)
 class StrategyDef:
     fn: object
     grid: dict          # signal parameters to search
     defaults: dict
-    risk_grid: dict = field(default_factory=lambda: {"stop_atr": [1.5, 2.5], "tp_r": [None, 2.0]})
+    risk_grid: dict = field(default_factory=lambda: {"stop_atr": [2.0, 3.0], "tp_r": [None, 3.0]})
 
 
 STRATEGIES: dict[str, StrategyDef] = {
@@ -98,6 +135,26 @@ STRATEGIES: dict[str, StrategyDef] = {
         _supertrend,
         {"mult": [2.0, 3.0], "trend": [0, 200]},
         {"mult": 3.0, "trend": 0},
+    ),
+    "ema_cross_adx": StrategyDef(
+        _ema_cross_adx,
+        {"fast": [20], "slow": [50, 100], "adx_min": [20, 25]},
+        {"fast": 20, "slow": 50, "adx_min": 20},
+    ),
+    "breakout_htf": StrategyDef(
+        _breakout_htf,
+        {"entry_n": [20, 55], "trend": [400, 800]},
+        {"entry_n": 55, "trend": 400},
+    ),
+    "pullback_htf": StrategyDef(
+        _pullback_htf,
+        {"trend": [400, 800], "rsi_entry": [35, 45]},
+        {"trend": 400, "rsi_entry": 40},
+    ),
+    "chandelier_trend": StrategyDef(
+        _chandelier_trend,
+        {"trend": [100, 200], "mult": [2.5, 3.5]},
+        {"trend": 200, "mult": 3.0},
     ),
 }
 

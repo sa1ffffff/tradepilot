@@ -13,8 +13,10 @@ chosen) are reported. "auto" is the same process choosing among *all*
 strategies each fold -- the honest estimate of what this research would do
 for you going forward.
 
-    python research.py                         # BTC+ETH, 15m/1h/4h, 365 days
+    python research.py                         # BTC+ETH, 1h/4h, 3 years, maker execution
     python research.py --symbols BTC/USDT --timeframes 1h --days 180
+    python research.py --execution taker       # market orders only, for comparison
+    python research.py --maker-fee 0.0006 --taker-fee 0.0008   # what-if: a lower fee tier
     python research.py --save                  # write the best passing strategy to strategy.json
 
 Public candles only; no API keys, no account access.
@@ -22,6 +24,7 @@ Public candles only; no API keys, no account access.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 from datetime import datetime, timezone
@@ -29,6 +32,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from config import Config
+from bot.costs import passive_cost, round_trip, taker_cost
 from bot.data import load_history
 from bot.engine import metrics, simulate
 from bot.strategies import STRATEGIES, grid, signals
@@ -131,8 +135,8 @@ def write_report(rows, args, cfg) -> str:
     path = os.path.join("reports", f"research_{stamp}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Research run {stamp} UTC\n\n")
-        f.write(f"{args.days} days, {FOLDS}-fold anchored walk-forward, fee {cfg.fee_rate:.2%}/side, "
-                f"slippage {cfg.slippage_bps} bps/side, risk {cfg.risk_fraction:.1%}/trade. "
+        f.write(f"{args.days} days, {FOLDS}-fold anchored walk-forward. {cost_line(cfg)}. "
+                f"Risk {cfg.risk_fraction:.1%}/trade. "
                 "All figures are out-of-sample (last 80% of the period).\n\n")
         f.write("```\n" + table(rows) + "\n```\n\n## Parameters chosen per fold\n\n")
         for r in rows:
@@ -140,6 +144,16 @@ def write_report(rows, args, cfg) -> str:
                     "; ".join(f"{fd['chosen'] or 'nothing qualified'} -> {fd['return_pct']}%"
                               for fd in r["folds"]) + "\n")
     return path
+
+
+def cost_line(cfg) -> str:
+    line = (f"Execution {cfg.execution}: maker {cfg.maker_fee:.3%}, taker {cfg.taker_fee:.3%} + "
+            f"{cfg.slippage_bps:g} bps slippage")
+    if cfg.execution == "maker":
+        line += f", {cfg.maker_fill_rate:.0%} assumed maker fills"
+    return (f"{line}; expected cost {passive_cost(cfg):.3%}/side normal, {taker_cost(cfg):.3%} on "
+            f"stops, {round_trip(cfg):.3%} round trip; entries skipped when costs exceed "
+            f"{cfg.max_cost_per_r:.0%} of the risk")
 
 
 def save_best(rows, cfg, force: bool) -> None:
@@ -169,15 +183,24 @@ def save_best(rows, cfg, force: bool) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--symbols", default="BTC/USDT,ETH/USDT")
-    p.add_argument("--timeframes", default="15m,1h,4h")
-    p.add_argument("--days", type=int, default=365)
+    p.add_argument("--timeframes", default="1h,4h")
+    p.add_argument("--days", type=int, default=1095)
+    p.add_argument("--execution", choices=["maker", "taker"])
+    p.add_argument("--maker-fee", type=float)
+    p.add_argument("--taker-fee", type=float)
+    p.add_argument("--maker-fill-rate", type=float)
     p.add_argument("--offline", action="store_true", help="use cached candles only")
     p.add_argument("--save", action="store_true", help="write the best passing strategy to strategy.json")
     p.add_argument("--force", action="store_true", help="with --save: write even if nothing passed")
     args = p.parse_args()
     cfg = Config()
+    overrides = {k: v for k, v in (("execution", args.execution), ("maker_fee", args.maker_fee),
+                                   ("taker_fee", args.taker_fee),
+                                   ("maker_fill_rate", args.maker_fill_rate)) if v is not None}
+    cfg = dataclasses.replace(cfg, **overrides)
 
-    print(f"\n  Research: {args.days} days, walk-forward out-of-sample\n")
+    print(f"\n  Research: {args.days} days, walk-forward out-of-sample")
+    print(f"  {cost_line(cfg)}\n")
     rows = research(cfg, args.symbols.split(","), args.timeframes.split(","), args.days, args.offline)
     print("\n" + table(rows))
     print(f"\n  Report: {write_report(rows, args, cfg)}")

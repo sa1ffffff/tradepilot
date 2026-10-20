@@ -20,9 +20,10 @@ OKX candles ─► strategy (strategy.json) ─► risk gate ─► OKX demo ord
 
 | File | What it does |
 |---|---|
-| `bot/strategies.py` | five strategies (EMA cross, trend pullback, Donchian breakout, Bollinger reversion, Supertrend) |
+| `bot/strategies.py` | nine strategies: five classics (EMA cross, trend pullback, Donchian breakout, Bollinger reversion, Supertrend) and four cost-aware variants for 1h/4h with slow trend filters, an ADX trend-strength gate and trailing exits |
 | `bot/indicators.py` | EMA, RSI, ATR, Bollinger, Supertrend, computed the way TradingView computes them |
-| `bot/engine.py` | the simulation used by backtest and research: fees, slippage, ATR stop, take-profit |
+| `bot/engine.py` | the simulation used by backtest and research: maker/taker costs, ATR stop, take-profit |
+| `bot/costs.py` | the cost model shared by engine, risk gate and live bot |
 | `bot/risk.py` | sizing (1% risk against the stop, capped at cash and `MAX_NOTIONAL_USD`), daily loss limit, kill switch |
 | `bot/runner.py` | the live loop; tracks its own position in `state.json` |
 | `research.py` | walk-forward test of every strategy; `--save` writes the winner to `strategy.json` |
@@ -42,7 +43,8 @@ python -m pytest -q             # should be all green
 ## 2. Research a strategy (no account needed)
 
 ```bash
-python research.py                  # BTC + ETH, 15m/1h/4h, last 365 days
+python research.py                  # BTC + ETH, 1h/4h, last 3 years, maker execution
+python research.py --execution taker   # same with market orders, for comparison
 python research.py --save           # also write the best passing strategy to strategy.json
 ```
 
@@ -123,7 +125,11 @@ research results are the evidence on profit.
 | `RISK_FRACTION` | fraction of equity risked per trade, sized against the stop |
 | `MAX_NOTIONAL_USD` | hard cap on one position (live only) |
 | `MAX_DAILY_LOSS_USD` | once the day is down this much, no new entries (live only) |
-| `FEE_RATE`, `SLIPPAGE_BPS` | cost assumptions for backtest and research |
+| `EXECUTION` | `maker` (default): post-only limit at the best bid/ask, re-priced `MAKER_ATTEMPTS` times, `MAKER_WAIT_SECONDS` each, then a market order for the rest. Stop exits are always market. `taker`: market orders only |
+| `MAKER_FEE`, `TAKER_FEE` | your fee rates; defaults are OKX's regular spot tier (0.08% / 0.10%). `check_connection.py` prints your account's real rates |
+| `SLIPPAGE_BPS` | assumed slippage on market orders |
+| `MAKER_FILL_RATE` | share of maker attempts research assumes will fill (default 70%); `session_report.py` measures the real share |
+| `MAX_COST_PER_R` | skip entries whose round-trip costs exceed this share of the amount risked (default 20%) |
 | `OKX_HOSTNAME` | API host |
 
 The strategy, its stop (`stop_atr`) and take-profit (`tp_r`, in multiples of

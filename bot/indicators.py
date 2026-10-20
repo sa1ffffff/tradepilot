@@ -68,3 +68,21 @@ def crossed_above(a: pd.Series, b) -> pd.Series:
 def crossed_below(a: pd.Series, b) -> pd.Series:
     b_prev = b.shift(1) if isinstance(b, pd.Series) else b
     return (a < b) & (a.shift(1) >= b_prev)
+
+
+def adx(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """Wilder's ADX (TradingView ta.dmi): trend strength regardless of direction."""
+    up = df["high"].diff()
+    down = -df["low"].diff()
+    plus_dm = up.where((up > down) & (up > 0), 0.0)
+    minus_dm = down.where((down > up) & (down > 0), 0.0)
+    a = atr(df, n)
+    plus_di = 100 * rma(plus_dm, n) / a
+    minus_di = 100 * rma(minus_dm, n) / a
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    return rma(dx.fillna(0), n)
+
+
+def chandelier_long(df: pd.DataFrame, n: int = 22, mult: float = 3.0) -> pd.Series:
+    """Trailing stop level for longs: highest high of n bars minus mult x ATR(n)."""
+    return df["high"].rolling(n).max() - mult * atr(df, n)

@@ -53,7 +53,9 @@ def main() -> None:
     print(f"  host      {cfg.okx_hostname}")
     print(f"  mode      {'DEMO (simulated)' if cfg.demo else 'LIVE -- REAL MONEY'}")
     print(f"  market    {cfg.symbol} {cfg.timeframe}")
-    print(f"  strategy  {spec.label()}\n")
+    print(f"  strategy  {spec.label()}")
+    orders = "maker first (post-only limit), market fallback" if cfg.execution == "maker" else "market"
+    print(f"  orders    {orders}\n")
     if not cfg.demo:
         fail("DEMO=false. Phase 1 is demo only; set DEMO=true in .env.")
 
@@ -92,6 +94,16 @@ def main() -> None:
     ok(f"balances: {quote:,.2f} {ex.quote} free, {base:.8f} {ex.base} free")
     if base > 0:
         print(f"         (the bot ignores the {ex.base} you already hold; it only sells what it buys)")
+
+    try:
+        fee = ex.trading_fee()
+        ok(f"your fee rate on {cfg.symbol}: maker {fee['maker']:.3%}, taker {fee['taker']:.3%}"
+           f"  (.env assumes maker {cfg.maker_fee:.3%}, taker {cfg.taker_fee:.3%})")
+        if abs(fee["maker"] - cfg.maker_fee) > 1e-6 or abs(fee["taker"] - cfg.taker_fee) > 1e-6:
+            print(f"         set MAKER_FEE={fee['maker']:g} and TAKER_FEE={fee['taker']:g} in .env, "
+                  "then re-run research.py so it uses your real costs")
+    except Exception as e:
+        print(f"  [warn] couldn't read your fee rate ({explain(e)}); research uses the .env values")
 
     price = ex.last_price()
     min_amt = ex.min_amount()

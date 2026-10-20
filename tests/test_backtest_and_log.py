@@ -36,7 +36,8 @@ def _frame(closes, lows=None):
     })
 
 
-CFG = Config(fee_rate=0.001, slippage_bps=0.0, backtest_start_equity=1000.0, risk_fraction=0.01)
+CFG = Config(execution="taker", taker_fee=0.001, slippage_bps=0.0, backtest_start_equity=1000.0,
+             risk_fraction=0.01, max_cost_per_r=0)
 
 
 def test_round_trip_at_same_price_loses_exactly_the_fees():
@@ -65,7 +66,7 @@ def test_take_profit():
 
 def test_never_spends_more_than_equity():
     closes = [100.0] * 80 + [100.5] + [100.6] * 3
-    cfg = Config(fee_rate=0.001, backtest_start_equity=1000.0, risk_fraction=0.5)
+    cfg = Config(taker_fee=0.001, backtest_start_equity=1000.0, risk_fraction=0.5, max_cost_per_r=0)
     spec = StrategySpec("ema_cross", {"fast": 9, "slow": 21}, stop_atr=0.1)
     trades, curve, _ = run(_frame(closes), spec, cfg)
     assert trades[0].size * trades[0].entry * 1.001 <= 1000 + 1e-6

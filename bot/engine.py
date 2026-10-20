@@ -1,10 +1,12 @@
 """Bar-by-bar simulation of a strategy, shared by backtest.py and research.py.
 
 Execution model (kept identical to the live runner):
-- signals are read at a bar's close and filled at that close, plus slippage;
+- signals are read at a bar's close and filled at that close;
+- entries, signal exits and take-profits pay bot.costs.passive_cost (maker
+  limit with market fallback); stop exits pay taker fee + slippage;
 - the stop and take-profit rest from the bar after entry; if a bar opens
   through them the fill is the open; if one bar touches both, the stop wins;
-- fees are charged on both sides;
+- entries whose stop is too tight for the costs are skipped (MAX_COST_PER_R);
 - size = risk_fraction of equity against the stop, capped at available cash.
 The live bot's daily loss limit and $ notional cap are not applied here, so
 results measure the strategy itself.
@@ -16,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from bot.costs import passive_cost, taker_cost, too_costly
 from bot.risk import position_size
 from bot.strategies import StrategySpec, signals
 
@@ -42,7 +45,7 @@ def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: in
     o, h, l, c = (sig[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
     a = sig["atr"].to_numpy(dtype=float)
     ent, ex = sig["entry"].to_numpy(), sig["exit"].to_numpy()
-    fee, slip = cfg.fee_rate, cfg.slippage_bps / 10_000
+    passive, urgent = passive_cost(cfg), taker_cost(cfg)
 
     trades: list[Trade] = []
     curve: list[float] = []
@@ -50,7 +53,7 @@ def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: in
 
     def close(i: int, px: float, reason: str) -> None:
         nonlocal equity, pos
-        proceeds = pos["size"] * px * (1 - fee)
+        proceeds = pos["size"] * px * (1 - (urgent if reason == "stop" else passive))
         equity += proceeds
         pnl = proceeds - pos["cost"]
         trades.append(Trade(pd.Timestamp(pos["time"]), pd.Timestamp(t[i]), pos["entry"], px,
@@ -61,24 +64,24 @@ def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: in
     for i in range(start, end):
         if pos is not None:
             if l[i] <= pos["stop"]:
-                close(i, min(o[i], pos["stop"]) * (1 - slip), "stop")
+                close(i, min(o[i], pos["stop"]), "stop")
             elif pos["tp"] is not None and h[i] >= pos["tp"]:
-                close(i, max(o[i], pos["tp"]) * (1 - slip), "tp")
+                close(i, max(o[i], pos["tp"]), "tp")
 
         if pos is not None and ex[i]:
-            close(i, c[i] * (1 - slip), "signal")
+            close(i, c[i], "signal")
         elif pos is None and ent[i] and a[i] > 0:
-            px = c[i] * (1 + slip)
+            px = c[i]
             dist = spec.stop_atr * a[i]
-            if dist < px:
-                size = position_size(equity, px, dist, cfg.risk_fraction, float("inf"), fee)
-                cost = size * px * (1 + fee)
+            if dist < px and not too_costly(cfg, px, dist):
+                size = position_size(equity, px, dist, cfg.risk_fraction, float("inf"), urgent)
+                cost = size * px * (1 + passive)
                 pos = {"time": t[i], "entry": px, "size": size, "cost": cost, "equity": equity,
                        "risk": size * dist, "stop": px - dist,
                        "tp": px + spec.tp_r * dist if spec.tp_r else None}
                 equity -= cost
 
-        curve.append(equity + (pos["size"] * c[i] * (1 - fee) if pos else 0.0))
+        curve.append(equity + (pos["size"] * c[i] * (1 - passive) if pos else 0.0))
 
     if pos is not None:
         close(end - 1, c[end - 1], "end")

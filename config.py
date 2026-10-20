@@ -44,8 +44,16 @@ class Config:
     max_daily_loss_usd: float = _f("MAX_DAILY_LOSS_USD", 20.0)
     min_base_size: float = 1e-5
 
-    fee_rate: float = _f("FEE_RATE", 0.001)
-    slippage_bps: float = _f("SLIPPAGE_BPS", 2.0)
+    # Execution and costs. Defaults are OKX's regular (Lv1) spot tier; check_connection.py
+    # prints your account's actual rates.
+    execution: str = os.getenv("EXECUTION", "maker")        # maker: post-only limit, then market
+    maker_fee: float = _f("MAKER_FEE", 0.0008)
+    taker_fee: float = _f("TAKER_FEE", 0.0010)
+    slippage_bps: float = _f("SLIPPAGE_BPS", 2.0)          # market orders only
+    maker_wait_seconds: int = int(_f("MAKER_WAIT_SECONDS", 20))
+    maker_attempts: int = int(_f("MAKER_ATTEMPTS", 3))
+    maker_fill_rate: float = _f("MAKER_FILL_RATE", 0.7)    # research assumption; measure it live
+    max_cost_per_r: float = _f("MAX_COST_PER_R", 0.2)      # skip trades whose costs eat >20% of the risk
     backtest_start_equity: float = _f("BACKTEST_START_EQUITY", 1000.0)
 
     kill_file: str = "KILL"

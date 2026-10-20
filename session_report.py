@@ -46,7 +46,8 @@ def live_trades(events: list[dict], since: pd.Timestamp) -> list[dict]:
         elif e["msg"] == "exit_filled" and open_ is not None:
             trades.append({"entry_bar": open_.get("bar"), "entry": open_["price"],
                            "signal_close": open_.get("signal_close"), "exit_ts": e["ts"],
-                           "exit": e["price"], "reason": e["reason"], "pnl": e["pnl"]})
+                           "exit": e["price"], "reason": e["reason"], "pnl": e["pnl"],
+                           "maker_shares": [open_.get("maker_share"), e.get("maker_share")]})
             open_ = None
     if open_ is not None:
         trades.append({"entry_bar": open_.get("bar"), "entry": open_["price"],
@@ -105,6 +106,11 @@ def main() -> None:
     closed = [t for t in live if t["exit"]]
     print(f"  Live realized P&L: {sum(t['pnl'] for t in closed):+.4f} {cfg.symbol.split('/')[1]} "
           f"over {len(closed)} closed trades")
+    shares = [m for t in live for m in t.get("maker_shares", []) if m is not None]
+    if shares:
+        print(f"  Maker fill share: {sum(shares) / len(shares):.0%} of orders "
+              f"(research assumed {cfg.maker_fill_rate:.0%}; set MAKER_FILL_RATE to the measured "
+              "value and re-run research)")
     if live_bars ^ bt_bars:
         print("  Mismatches mean the bot and the backtest disagree -- investigate those before "
               "trusting any backtest result.")

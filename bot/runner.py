@@ -69,7 +69,7 @@ def close_position(cfg, ex, risk, state, log, reason: str, price_hint: float, ba
         save_state(cfg.state_file, state)
         return
 
-    fill = ex.market_sell(amount)
+    fill = ex.sell(amount, urgent=(reason == "stop"))
     exit_px = fill["average"] or price_hint
     pnl = (exit_px - pos["entry"]) * fill["filled"] - fill["fee_quote"] - pos["entry_fee"]
     risk.record_pnl(pnl)
@@ -78,7 +78,8 @@ def close_position(cfg, ex, risk, state, log, reason: str, price_hint: float, ba
     save_state(cfg.state_file, state)
     log.info("exit_filled", {"reason": reason, "bar": bar, "size": fill["filled"],
                              "price": exit_px, "entry": pos["entry"], "pnl": round(pnl, 4),
-                             "pnl_today": round(risk.realized_pnl_today, 4), "id": fill["id"]})
+                             "pnl_today": round(risk.realized_pnl_today, 4),
+                             "maker_share": round(fill.get("maker_share", 0.0), 3), "id": fill["id"]})
 
 
 def step(cfg: Config, spec: StrategySpec, ex: OkxExchange, risk: RiskManager, state: dict,
@@ -121,7 +122,7 @@ def step(cfg: Config, spec: StrategySpec, ex: OkxExchange, risk: RiskManager, st
             log.info("entry_skipped", {"reason": decision.reason, "bar": bar_time, "price": price})
             return
 
-        fill = ex.market_buy(decision.size)
+        fill = ex.buy(decision.size)
         if fill["filled"] <= 0:
             log.error("entry_unfilled", {"id": fill["id"], "status": fill["status"]})
             return
@@ -138,6 +139,7 @@ def step(cfg: Config, spec: StrategySpec, ex: OkxExchange, risk: RiskManager, st
         log.info("entry_filled", {"bar": bar_time, "size": state["position"]["size"],
                                   "price": entry_px, "signal_close": price,
                                   "stop": state["position"]["stop"], "tp": state["position"]["tp"],
+                                  "maker_share": round(fill.get("maker_share", 0.0), 3),
                                   "id": fill["id"]})
 
 

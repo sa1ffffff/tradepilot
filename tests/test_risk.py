@@ -3,7 +3,8 @@ import dataclasses
 from config import Config
 from bot.risk import RiskManager
 
-CFG = Config(risk_fraction=0.01, max_notional_usd=50.0, max_daily_loss_usd=20.0, fee_rate=0.0)
+CFG = Config(risk_fraction=0.01, max_notional_usd=50.0, max_daily_loss_usd=20.0, taker_fee=0.0,
+             slippage_bps=0.0, max_cost_per_r=0)
 
 
 def test_size_respects_notional_cap():
@@ -62,3 +63,13 @@ def test_state_roundtrip():
     r2 = RiskManager(CFG)
     r2.load_dict(r.to_dict())
     assert r2.realized_pnl_today == -5 and r2.is_duplicate("a")
+
+
+def test_cost_gate_blocks_stops_too_tight_for_fees():
+    cfg = dataclasses.replace(CFG, execution="taker", taker_fee=0.001, slippage_bps=0.0,
+                              max_cost_per_r=0.2, max_notional_usd=1e15)
+    r = RiskManager(cfg)
+    # round trip 0.2% of 60000 = 120; 20% of a 300 stop = 60 -> blocked
+    assert r.evaluate_entry(60000, 300, 1000, kill=False).reason == "stop too tight for trading costs"
+    # a 1200 stop: 20% = 240 >= 120 -> allowed
+    assert r.evaluate_entry(60000, 1200, 1000, kill=False).allowed
