@@ -10,11 +10,7 @@ import time
 
 import pandas as pd
 
-
-def candles_to_df(rows: list[list]) -> pd.DataFrame:
-    df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
-    df["time"] = pd.to_datetime(df["time"], unit="ms", utc=True)
-    return df
+from bot.data import fetch_closed
 
 
 class OkxExchange:
@@ -43,16 +39,10 @@ class OkxExchange:
     def min_amount(self) -> float:
         return float(self.market["limits"]["amount"]["min"] or self.cfg.min_base_size)
 
-    def fetch_closed_ohlcv(self, limit: int | None = None) -> pd.DataFrame:
-        """Candles whose period has fully ended. The exchange returns the
-        still-forming candle last; drop it (and anything else not yet closed)
-        by timestamp rather than assuming its position."""
-        limit = limit or self.cfg.ohlcv_limit
-        rows = self.client.fetch_ohlcv(self.cfg.symbol, self.cfg.timeframe, limit=limit)
-        tf_ms = self.client.parse_timeframe(self.cfg.timeframe) * 1000
-        now_ms = self.client.milliseconds()
-        rows = [r for r in rows if r[0] + tf_ms <= now_ms]
-        return candles_to_df(rows)
+    def fetch_closed_ohlcv(self, bars: int) -> pd.DataFrame:
+        """The last `bars` candles whose period has fully ended (the forming
+        candle is dropped by timestamp)."""
+        return fetch_closed(self.client, self.cfg.symbol, self.cfg.timeframe, bars)
 
     def last_price(self) -> float:
         return float(self.client.fetch_ticker(self.cfg.symbol)["last"])

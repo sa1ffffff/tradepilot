@@ -35,12 +35,9 @@ class Config:
     symbol: str = os.getenv("SYMBOL", "BTC/USDT")
     timeframe: str = os.getenv("TIMEFRAME", "15m")
     poll_seconds: int = int(_f("POLL_SECONDS", 60))
-    ohlcv_limit: int = 300
 
-    ema_fast: int = int(_f("EMA_FAST", 9))
-    ema_slow: int = int(_f("EMA_SLOW", 21))
-    atr_period: int = int(_f("ATR_PERIOD", 14))
-    atr_stop_mult: float = _f("ATR_STOP_MULT", 2.0)
+    # which strategy to trade comes from strategy.json (written by research.py)
+    strategy_file: str = "strategy.json"
 
     risk_fraction: float = _f("RISK_FRACTION", 0.01)
     max_notional_usd: float = _f("MAX_NOTIONAL_USD", 50.0)
@@ -48,6 +45,7 @@ class Config:
     min_base_size: float = 1e-5
 
     fee_rate: float = _f("FEE_RATE", 0.001)
+    slippage_bps: float = _f("SLIPPAGE_BPS", 2.0)
     backtest_start_equity: float = _f("BACKTEST_START_EQUITY", 1000.0)
 
     kill_file: str = "KILL"

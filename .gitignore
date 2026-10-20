@@ -9,3 +9,4 @@ KILL
 state.json
 state.json.tmp
 .pytest_cache/
+data/cache/

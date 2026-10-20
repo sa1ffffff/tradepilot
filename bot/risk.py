@@ -59,7 +59,8 @@ class RiskManager:
         self._seen = set(data.get("seen", []))
 
     # --- the gate ------------------------------------------------------------
-    def evaluate_entry(self, price: float, atr: float, equity: float, kill: bool) -> Decision:
+    def evaluate_entry(self, price: float, stop_distance: float, equity: float,
+                       kill: bool) -> Decision:
         if kill:
             return Decision(False, "kill switch engaged")
         if self.daily_loss_hit():
@@ -68,18 +69,20 @@ class RiskManager:
             return Decision(False, "no equity")
         if price <= 0:
             return Decision(False, "invalid price")
-
-        stop_distance = self.cfg.atr_stop_mult * atr
-        if stop_distance <= 0 or stop_distance >= price:
+        if not stop_distance > 0 or stop_distance >= price:
             return Decision(False, "invalid stop distance")
 
-        risk_budget = equity * self.cfg.risk_fraction
-        size = risk_budget / stop_distance
-
-        # can't spend more than we have, and never more than the hard cap
-        size = min(size, equity / price, self.cfg.max_notional_usd / price)
-
+        size = position_size(equity, price, stop_distance, self.cfg.risk_fraction,
+                             self.cfg.max_notional_usd, self.cfg.fee_rate)
         if size < self.cfg.min_base_size:
             return Decision(False, "position below minimum size")
 
         return Decision(True, "ok", size=math.floor(size * 1e8) / 1e8, stop_distance=stop_distance)
+
+
+def position_size(equity: float, price: float, stop_distance: float, risk_fraction: float,
+                  max_notional: float, fee_rate: float = 0.0) -> float:
+    """Risk `risk_fraction` of equity if the stop is hit -- but in spot you
+    can't spend more than you have, and never more than the hard cap."""
+    size = equity * risk_fraction / stop_distance
+    return min(size, equity / (price * (1 + fee_rate)), max_notional / price)
