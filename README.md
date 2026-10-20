@@ -1,124 +1,143 @@
-# okx-demo-bot
+# tradepilot — OKX demo trading bot
 
-A deterministic crypto trading bot that runs against **OKX demo (simulated) trading** —
-fake money, real API, real plumbing. The point of this stage is to prove the whole
-loop works and to measure a strategy honestly before any real capital is involved.
+A deterministic crypto trading bot that runs on your own PC against **your OKX
+demo (simulated) account**: fake money, real API, real orders in the demo book.
+Phase 1 is about two things: finding a strategy that holds up on data it was
+never tuned on, and proving that the live bot does exactly what the backtest
+says it does.
 
-There is no AI in the trading loop here, by design. The signal is a plain EMA
-crossover; the risk layer is hard-coded. That keeps every decision auditable while
-you validate. Claude's role at this stage is building and reviewing this code — not
-placing trades.
+There is no AI in the trading loop. Strategies are plain indicator rules, and
+the risk layer is hard-coded, so every decision can be audited.
 
 ## How it works
 
 ```
-OKX candles ──► strategy (EMA cross + ATR) ──► risk gate ──► OKX demo order
-                     closed bars only          size / limits      (simulated)
+OKX candles ─► strategy (strategy.json) ─► risk gate ─► OKX demo order
+              closed bars only             size / limits    (simulated)
+                                    ▲
+           research.py picks it ────┘   stop + take-profit checked every poll
 ```
 
-- **strategy.py** — EMA(fast/slow) crossover, read only off closed bars, with ATR for the stop.
-- **risk.py** — position sizing (risk a fixed fraction against the ATR stop), per-trade notional cap, daily loss limit, idempotency, kill switch.
-- **exchange.py** — ccxt wrapper for OKX, sandbox mode on by default.
-- **runner.py** — the live demo loop (long/flat). Tracks its own position and daily P&L in `state.json`, and exits on a sell signal or when price hits the ATR stop (checked every poll).
-- **backtest.py** — runs the strategy over history (sample data or real candles) and reports stats.
+| File | What it does |
+|---|---|
+| `bot/strategies.py` | five strategies (EMA cross, trend pullback, Donchian breakout, Bollinger reversion, Supertrend) |
+| `bot/indicators.py` | EMA, RSI, ATR, Bollinger, Supertrend, computed the way TradingView computes them |
+| `bot/engine.py` | the simulation used by backtest and research: fees, slippage, ATR stop, take-profit |
+| `bot/risk.py` | sizing (1% risk against the stop, capped at cash and `MAX_NOTIONAL_USD`), daily loss limit, kill switch |
+| `bot/runner.py` | the live loop; tracks its own position in `state.json` |
+| `research.py` | walk-forward test of every strategy; `--save` writes the winner to `strategy.json` |
+| `check_connection.py` | read-only check of your OKX demo account (never places orders) |
+| `session_report.py` | after a demo run: compares your live demo trades with the backtest over the same hours |
 
-## Setup
+## 1. Install
 
 ```bash
-cd okx-demo-bot
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
+copy .env.example .env          # macOS/Linux: cp .env.example .env
+python -m pytest -q             # should be all green
 ```
 
-### Get OKX demo keys (free, no real funds)
-
-1. Log in to OKX → **Trade → Demo Trading** (switches the whole UI to simulated).
-2. Profile → **API** → create keys **inside Demo Trading**. These are separate from real-account keys.
-3. Give the key **Trade** permission and set a passphrase.
-4. Put the API key, secret, and passphrase into `.env`. Leave `DEMO=true`.
-
-## Run the backtest first (no keys needed)
+## 2. Research a strategy (no account needed)
 
 ```bash
-python make_sample_data.py     # writes synthetic candles to data/
-python backtest.py             # runs on the sample data
+python research.py                  # BTC + ETH, 15m/1h/4h, last 365 days
+python research.py --save           # also write the best passing strategy to strategy.json
 ```
 
-Real OKX candles (public data, still no keys needed):
+It downloads public candles (cached in `data/cache/`), then for every
+strategy runs a 4-fold **walk-forward** test: choose parameters on the past,
+trade the next unseen segment with them, repeat. Only the unseen results are
+reported. A strategy is a **CANDIDATE** only with ≥30 out-of-sample trades,
+profit factor ≥1.2, a positive return, and at least 3 of 4 segments profitable.
+The `auto` rows show what the process gives you when it picks among all
+strategies each time; that is the most honest number in the table.
 
-```bash
-python backtest.py --live --symbol BTC/USDT --timeframe 1h --limit 1000
-```
+If nothing passes, `--save` refuses to write `strategy.json`. That isn't a bug:
+it means no strategy has shown an edge. `--save --force` writes the best one
+anyway, for testing the plumbing only.
 
-On the bundled synthetic data this plain EMA cross **loses money** — low win rate,
-negative expectancy. That is expected and it is the lesson: the pipeline is correct,
-the naive strategy has no edge. Finding an edge is the work you do *after* the plumbing
-is trusted, by testing real data and better rules. Do not run anything live until a
-strategy shows a positive, stable edge across different market conditions.
+## 3. Connect your OKX demo account
 
-## Run the demo bot
+1. Log in at okx.com, open **Trade → Demo Trading**. The whole UI switches to simulated.
+2. Still in demo mode: **Profile → API → Create API key**.
+   - Permissions: **Read + Trade**. Never Withdraw.
+   - Set a passphrase and write it down; OKX won't show it again.
+   - IP allowlist: optional; if you set one, it must be your PC's public IP.
+3. Put the three values in `.env`:
+   ```
+   OKX_API_KEY=...
+   OKX_API_SECRET=...
+   OKX_API_PASSPHRASE=...
+   DEMO=true
+   OKX_HOSTNAME=app.okx.com      # www.okx.com is blocked on some networks; EEA accounts: my.okx.com
+   ```
+4. Check it (read-only, places no orders):
+   ```bash
+   python check_connection.py
+   ```
+   It explains common failures (wrong passphrase, live key used in demo, clock
+   off, IP allowlist).
 
-With `.env` filled in and `DEMO=true`:
+`.env` is git-ignored; your keys never leave your PC.
+
+## 4. Run the demo bot
 
 ```bash
 python -m bot.runner
 ```
 
-It polls every `POLL_SECONDS`, acts only on closed bars, and places **simulated** orders.
-Logs stream as JSON to the console and to `logs/bot.log`.
+It polls every `POLL_SECONDS`, acts only on closed bars, and places
+**simulated** orders in your demo account, at most `MAX_NOTIONAL_USD` per
+position. Logs stream as JSON to the console and `logs/bot.log`. Keep the PC
+awake while it runs: the stop and take-profit are checked by the bot, so they
+only work while it's running. Stop it with Ctrl-C; restarting is safe.
 
-### Kill switch
+The bot refuses to start with `DEMO=false`.
+
+**Kill switch**: create a file named `KILL` in this folder (PowerShell: `ni KILL`)
+to block new entries; delete it to resume. Exits keep working.
+
+**State file**: `state.json` holds the bot's open position and today's realized
+P&L, so a restart neither forgets the position nor resets the daily loss limit.
+The bot only sells what it bought itself; the BTC a demo account starts with is
+left alone. Delete `state.json` only while the bot is stopped and flat.
+
+## 5. Check the run
 
 ```bash
-touch KILL      # stops new entries immediately (PowerShell: ni KILL)
-rm KILL         # resumes
+python session_report.py
 ```
 
-Exits and the stop keep working while KILL is present.
+Lists your live demo trades next to the backtest's trades for the same
+window, with matched entries, slippage and P&L. Phase 1 passes when they line
+up. One or two days is far too few trades to show profitability by itself;
+the matching proves the backtest is a faithful model of the bot, and the
+research results are the evidence on profit.
 
-### State file
-
-`state.json` holds the bot's open position (entry, size, stop) and today's realized
-P&L, so a restart neither forgets the position nor resets the daily loss limit. The bot
-only ever sells what it bought itself: OKX demo accounts start with BTC already in them,
-and that balance is left alone. Delete `state.json` only while the bot is stopped and flat.
-
-Stop the process any time with Ctrl-C.
-
-## Risk settings (`.env`)
+## Settings (`.env`)
 
 | Setting | Meaning |
 |---|---|
-| `RISK_FRACTION` | fraction of equity risked per trade, sized against the ATR stop |
-| `MAX_NOTIONAL_USD` | hard cap on how much goes into one position |
-| `MAX_DAILY_LOSS_USD` | once the day is down this much, no new entries |
-| `ATR_STOP_MULT` | stop distance = this × ATR |
+| `RISK_FRACTION` | fraction of equity risked per trade, sized against the stop |
+| `MAX_NOTIONAL_USD` | hard cap on one position (live only) |
+| `MAX_DAILY_LOSS_USD` | once the day is down this much, no new entries (live only) |
+| `FEE_RATE`, `SLIPPAGE_BPS` | cost assumptions for backtest and research |
+| `OKX_HOSTNAME` | API host |
 
-The backtest sizes by `RISK_FRACTION` (capped at available equity, since this is spot)
-to show the strategy's edge; the live bot also applies `MAX_NOTIONAL_USD`, so real demo
-positions stay small while you watch it. Both honour the ATR stop and charge fees on
-entry and exit.
+The strategy, its stop (`stop_atr`) and take-profit (`tp_r`, in multiples of
+the stop distance) come from `strategy.json`.
 
-Run the tests with `python -m pytest -q`.
+## TradingView
 
-## What to verify before even thinking about live
-
-- Orders appear in your OKX demo account matching the logs.
-- The kill switch halts entries.
-- The daily loss limit stops trading when breached.
-- Backtest on real candles shows a positive, repeatable edge — not one lucky run.
-
-## Not done here (on purpose)
-
-Leverage, shorting, stop orders resting on the exchange (the stop is enforced by the
-bot on each poll, so it only works while the bot is running), and any
-Claude-in-the-loop decision layer. Those come after this demo is trusted. The gated
-Claude decision layer plugs in at the risk gate — it can veto or resize a trade, never
-trigger one.
+The indicators here use TradingView's formulas (RMA-smoothed RSI/ATR,
+`ta.supertrend`), so a chart in TradingView shows the same values the bot
+uses. That's handy for eyeballing signals. To test an idea from TradingView,
+describe the rules and add it to `bot/strategies.py`, so it goes through the
+same walk-forward test.
 
 ---
 
-This is demo tooling for learning, not financial advice. Trading real crypto can lose
-real money, including with leverage very quickly. Keep `DEMO=true` until you have your
-own verified results and understand exactly what flipping it changes.
+Demo tooling for learning, not financial advice. Real crypto trading can lose
+real money.
