@@ -1,0 +1,54 @@
+import dataclasses
+
+from config import Config
+from bot.risk import RiskManager
+
+CFG = Config(risk_fraction=0.01, atr_stop_mult=2.0, max_notional_usd=50.0,
+             max_daily_loss_usd=20.0)
+
+
+def test_size_respects_notional_cap():
+    r = RiskManager(CFG)
+    d = r.evaluate_entry(price=60000, atr=100, equity=1000, kill=False)
+    assert d.allowed
+    assert d.size * 60000 <= CFG.max_notional_usd + 1e-6
+
+
+def test_kill_switch_blocks():
+    r = RiskManager(CFG)
+    assert not r.evaluate_entry(60000, 100, 1000, kill=True).allowed
+
+
+def test_daily_loss_blocks():
+    r = RiskManager(CFG)
+    r.record_pnl(-25)  # beyond the -20 limit
+    assert r.daily_loss_hit()
+    assert not r.evaluate_entry(60000, 100, 1000, kill=False).allowed
+
+
+def test_duplicate_tracking():
+    r = RiskManager(CFG)
+    assert not r.is_duplicate("k")
+    r.remember("k")
+    assert r.is_duplicate("k")
+
+
+def test_rejects_zero_atr():
+    r = RiskManager(CFG)
+    assert not r.evaluate_entry(60000, 0, 1000, kill=False).allowed
+
+
+def test_uncapped_sizing_scales_with_risk():
+    big = dataclasses.replace(CFG, max_notional_usd=1e15)
+    r = RiskManager(big)
+    d = r.evaluate_entry(price=60000, atr=1000, equity=1000, kill=False)
+    # risk budget 10 / stop distance 2000 = 0.005 base ($300, within equity)
+    assert abs(d.size - 0.005) < 1e-6
+
+
+def test_spot_size_never_exceeds_equity():
+    big = dataclasses.replace(CFG, max_notional_usd=1e15)
+    r = RiskManager(big)
+    # risk-based size would be 0.05 BTC = $3000 on $1000 equity -> capped
+    d = r.evaluate_entry(price=60000, atr=100, equity=1000, kill=False)
+    assert d.size * 60000 <= 1000 + 1e-6

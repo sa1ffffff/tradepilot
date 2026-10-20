@@ -1,0 +1,11 @@
+.env
+logs/
+__pycache__/
+*.pyc
+.venv/
+KILL
+*.csv
+!data/*.csv
+state.json
+state.json.tmp
+.pytest_cache/
