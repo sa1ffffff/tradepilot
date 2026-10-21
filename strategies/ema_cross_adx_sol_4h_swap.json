@@ -1,0 +1,24 @@
+{
+  "symbol": "SOL/USDT:USDT",
+  "timeframe": "4h",
+  "name": "ema_cross_adx",
+  "params": {
+    "fast": 20,
+    "slow": 50,
+    "adx_min": 20
+  },
+  "stop_atr": 3.0,
+  "tp_r": 3.0,
+  "shorts": true,
+  "evidence": {
+    "trades": 42,
+    "win_rate_pct": 42.9,
+    "profit_factor": 2.28,
+    "total_return_pct": 57.11,
+    "max_drawdown_pct": -11.31,
+    "folds_positive": 4,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.020%, taker 0.050% + 2 bps slippage, 70% assumed maker fills; expected cost 0.035%/side normal, 0.070% on stops, 0.070% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-21T07:57+00:00"
+}
