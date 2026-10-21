@@ -95,7 +95,8 @@ def test_gap_beyond_liquidation_loses_only_the_margin():
 class FakeFutures:
     min_contracts, contract_size = 0.01, 0.01
 
-    def __init__(self, closes):
+    def __init__(self, closes, symbol="BTC/USDT:USDT"):
+        self.cfg = dataclasses.replace(CFG, symbol=symbol)
         self.df = frame(closes)
         self.pos = None
         self.algos = []
@@ -167,14 +168,14 @@ SPEC = StrategySpec("ema_cross", {"fast": 9, "slow": 21}, stop_atr=2.0, shorts=T
 
 
 def new_state(cfg):
-    return {"position": None, "risk": {}, "_path": cfg.state_file}
+    return fr.Store(cfg.state_file)
 
 
 def test_short_entry_places_exchange_stop(fcfg):
     ex = FakeFutures([100.0] * 80 + [70.0])
     state, log = new_state(fcfg), Log()
     fr.step(fcfg, SPEC, ex, RiskManager(fcfg), state, log)
-    assert state["position"]["side"] == "short"
+    assert state.slot(fcfg.symbol)["position"]["side"] == "short"
     assert ex.algos and ex.algos[0][2] > 70.0          # short stop above entry
     assert ex.calls[0][0] == "lev" and 1 <= ex.calls[0][1] <= fcfg.fut_max_leverage
 
@@ -184,7 +185,7 @@ def test_stop_failure_closes_position_immediately(fcfg):
     ex.fail_protection = True
     state, log = new_state(fcfg), Log()
     fr.step(fcfg, SPEC, ex, RiskManager(fcfg), state, log)
-    assert state["position"] is None and ex.pos is None
+    assert state.slot(fcfg.symbol)["position"] is None and ex.pos is None
     assert any(m == "stop_failed_closing" for m, _ in log.events)
 
 
@@ -194,7 +195,7 @@ def test_exchange_stop_close_is_recorded(fcfg):
     fr.step(fcfg, SPEC, ex, risk, state, log)
     ex.pos = None                                      # OKX's stop closed it
     fr.step(fcfg, SPEC, ex, risk, state, log)
-    assert state["position"] is None and risk.realized_pnl_today == -12.5
+    assert state.slot(fcfg.symbol)["position"] is None and risk.realized_pnl_today == -12.5
 
 
 def test_missing_stop_is_replaced(fcfg):
@@ -213,7 +214,7 @@ def test_reversal_on_opposite_signal(fcfg):
     ex.df = frame([130.0] * 81 + [90.0])  # one bar later
     fr.step(fcfg, SPEC, ex, risk, state, Log())
     assert [c[0] for c in ex.calls if c[0] != "lev"] == ["open", "close", "open"]
-    assert state["position"]["side"] == "short"
+    assert state.slot(fcfg.symbol)["position"]["side"] == "short"
 
 
 def test_foreign_position_blocks_trading(fcfg):
@@ -230,3 +231,31 @@ def test_kill_switch_blocks_futures_entry(fcfg):
     ex = FakeFutures([100.0] * 80 + [130.0])
     fr.step(fcfg, SPEC, ex, RiskManager(fcfg), new_state(fcfg), Log())
     assert not any(c[0] == "open" for c in ex.calls)
+
+
+def test_margin_cap_is_shared_across_strategies(fcfg):
+    risk, store = RiskManager(fcfg), new_state(fcfg)
+    store.slot("ETH/USDT:USDT")["position"] = {"margin": 5000 * fcfg.fut_max_margin_fraction}
+    ex = FakeFutures([100.0] * 80 + [130.0])
+    log = Log()
+    fr.step(fcfg, SPEC, ex, risk, store, log)  # BTC: no margin room left
+    assert not any(c[0] == "open" for c in ex.calls)
+    assert any(m == "entry_skipped" for m, _ in log.events)
+
+
+def test_state_survives_restart(fcfg):
+    ex = FakeFutures([100.0] * 80 + [130.0])
+    store = new_state(fcfg)
+    fr.step(fcfg, SPEC, ex, RiskManager(fcfg), store, Log())
+    again = fr.Store(fcfg.state_file)
+    assert again.slot(fcfg.symbol)["position"]["side"] == "long"
+
+
+def test_two_strategies_on_one_symbol_are_refused(tmp_path):
+    import json
+    for name in ("a.json", "b.json"):
+        (tmp_path / name).write_text(json.dumps({"symbol": "BTC/USDT:USDT", "timeframe": "1h",
+                                                 "name": "ema_cross", "params": {"fast": 9, "slow": 21}}))
+    cfg = dataclasses.replace(CFG, strategy_file=f"{tmp_path / 'a.json'},{tmp_path / 'b.json'}")
+    with pytest.raises(SystemExit):
+        fr.load_futures_strategies(cfg)
