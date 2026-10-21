@@ -81,7 +81,9 @@ def load_futures_strategy(cfg: Config, path: str | None = None) -> tuple[Config,
         d = json.load(f)
     cfg = dataclasses.replace(cfg, strategy_file=path, symbol=d.get("symbol", cfg.symbol),
                               timeframe=d.get("timeframe", cfg.timeframe),
-                              max_cost_per_r=d.get("max_cost_per_r", cfg.max_cost_per_r))
+                              max_cost_per_r=d.get("max_cost_per_r", cfg.max_cost_per_r),
+                              # a test slot can risk less than the researched ones
+                              fut_risk_fraction=d.get("fut_risk_fraction", cfg.fut_risk_fraction))
     if ":" not in cfg.symbol:
         raise SystemExit(f"{path} is a spot strategy ({cfg.symbol}); "
                          "use one researched with --market swap.")

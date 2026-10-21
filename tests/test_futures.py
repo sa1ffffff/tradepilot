@@ -259,3 +259,10 @@ def test_two_strategies_on_one_symbol_are_refused(tmp_path):
     cfg = dataclasses.replace(CFG, strategy_file=f"{tmp_path / 'a.json'},{tmp_path / 'b.json'}")
     with pytest.raises(SystemExit):
         fr.load_futures_strategies(cfg)
+
+
+def test_strategy_file_can_lower_risk_for_a_test_slot():
+    from bot.futures_runner import load_futures_strategy
+    cfg, spec = load_futures_strategy(futures_cfg(Config()), "strategies/futures_test_btc_5m_swap.json")
+    assert (cfg.symbol, cfg.timeframe, cfg.fut_risk_fraction) == ("BTC/USDT:USDT", "5m", 0.001)
+    assert spec.shorts
