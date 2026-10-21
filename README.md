@@ -185,3 +185,18 @@ python -m bot.futures_runner              # trade on the demo account
   a missing stop is re-placed on the next poll.
 - State: `state_futures.json`; log: `logs/futures.log`. The `KILL` file blocks entries
   for both bots.
+
+## Time Machine (read-only)
+
+```bash
+python timemachine.py                 # next 12 months for the strategies in FUT_STRATEGY_FILE
+python timemachine.py --risk 0.01     # same at 1% risk per trade
+```
+
+Replays each strategy's out-of-sample trades 10,000 times to show the range of outcomes:
+typical and 1-in-20 bad returns, the odds of a losing year, drawdowns and losing streaks.
+The portfolio row resamples whole historical months for all coins together, so coins that
+fell together still fall together. It also shows how each strategy's trades have ended
+(stop, target, exit signal). It only reads cached candles; it never touches the account,
+and the bots don't import it. It doesn't model the margin cap or daily loss limit, and the
+strategies were picked on this same data, so treat the numbers as optimistic.
