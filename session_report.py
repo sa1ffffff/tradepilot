@@ -47,7 +47,9 @@ def live_trades(events: list[dict], since: pd.Timestamp) -> list[dict]:
             trades.append({"entry_bar": open_.get("bar"), "entry": open_["price"],
                            "signal_close": open_.get("signal_close"), "exit_ts": e["ts"],
                            "exit": e["price"], "reason": e["reason"], "pnl": e["pnl"],
-                           "maker_shares": [open_.get("maker_share"), e.get("maker_share")]})
+                           # stop exits are market orders by design, so they don't count
+                           "maker_shares": [open_.get("maker_share"),
+                                            e.get("maker_share") if e["reason"] != "stop" else None]})
             open_ = None
     if open_ is not None:
         trades.append({"entry_bar": open_.get("bar"), "entry": open_["price"],
@@ -72,6 +74,10 @@ def main() -> None:
     live = live_trades(events, since)
 
     client = public_client(cfg.okx_hostname)
+    if cfg.demo:
+        # OKX's demo market prints its own candles (same trend, different wicks);
+        # replay the bot on the candles it actually saw
+        client.set_sandbox_mode(True)
     hours = (pd.Timestamp.now(tz="UTC") - since).total_seconds() / 3600
     tf_hours = client.parse_timeframe(cfg.timeframe) / 3600
     df = fetch_closed(client, cfg.symbol, cfg.timeframe, int(hours / tf_hours) + warmup_bars(spec) + 2)
