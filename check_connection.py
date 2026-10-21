@@ -24,7 +24,9 @@ HINTS = {
     "50110": "Your IP isn't on this key's IP allowlist. Add your current IP in OKX, or remove the allowlist.",
     "50111": "OKX_API_KEY is not recognised. Check for typos or spaces in .env.",
     "50113": "Signature invalid: OKX_API_SECRET is wrong.",
-    "50119": "OKX doesn't know this key on OKX_HOSTNAME. Check it was copied from the API page; "
+    "50123": "The API key isn't allowed to trade this coin. In OKX > API, edit the key and add "
+             "the coin under 'Crypto' (and 'Perpetual' under Markets for futures).",
+    "50119":"OKX doesn't know this key on OKX_HOSTNAME. Check it was copied from the API page; "
              "if it was, your account is on another OKX site: set OKX_HOSTNAME to the one you "
              "log in on (app.okx.com global, my.okx.com EEA, tr.okx.com Turkey, us.okx.com US).",
 }

@@ -10,3 +10,6 @@ state.json
 state.json.tmp
 .pytest_cache/
 data/cache/
+state_futures.json
+state_futures.json.tmp
+*.lock

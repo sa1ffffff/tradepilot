@@ -87,6 +87,7 @@ def walk_forward(df: pd.DataFrame, candidates, cfg, market: str = "spot") -> dic
     m = metrics(oos_trades, curve, cfg.backtest_start_equity, equity,
                 float(df["close"].iloc[seg]), float(df["close"].iloc[-1]))
     m["folds_positive"] = sum(f["return_pct"] > 0 for f in folds)
+    m["_trades"] = oos_trades  # for timemachine.py; not part of the report
     m["folds"] = folds
     m["verdict"] = verdict(m)
     return m

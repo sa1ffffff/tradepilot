@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from config import Config
 from bot.costs import too_costly
 from bot.futures import futures_cfg, plan
+from bot.lock import acquire as acquire_lock
 from bot.log import get_logger
 from bot.risk import RiskManager
 from bot.runner import kill_engaged
@@ -251,6 +252,7 @@ def main() -> None:
     if not base.demo and os.getenv("I_UNDERSTAND_THIS_IS_REAL_MONEY") != "yes":
         raise SystemExit("DEMO=false would trade real money. Futures run on demo only.")
     fcfg = futures_cfg(base)
+    lock = acquire_lock(fcfg.state_file)  # noqa: F841 -- held until the process exits
     strategies = load_futures_strategies(fcfg)
     log = get_logger(fcfg.log_dir, "futures")
     slots = []

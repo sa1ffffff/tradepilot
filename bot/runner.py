@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 from config import Config
 from bot.exchange import OkxExchange
+from bot.lock import acquire as acquire_lock
 from bot.log import get_logger
 from bot.risk import RiskManager
 from bot.strategies import StrategySpec, default_spec, signals, warmup_bars
@@ -148,6 +149,7 @@ def main() -> None:
     cfg, spec = load_strategy(Config())
     if not cfg.demo and os.getenv("I_UNDERSTAND_THIS_IS_REAL_MONEY") != "yes":
         raise SystemExit("DEMO=false would trade real money. Phase 1 is demo only; set DEMO=true.")
+    lock = acquire_lock(cfg.state_file)  # noqa: F841 -- held until the process exits
     log = get_logger(cfg.log_dir)
     ex = OkxExchange(cfg)
     cfg = dataclasses.replace(cfg, min_base_size=ex.min_amount())
