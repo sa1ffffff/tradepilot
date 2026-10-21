@@ -69,8 +69,10 @@ class FakeExchange:
 @pytest.fixture
 def cfg(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # KILL / state.json land in a temp dir
+    # pin everything the user's .env could change
     return dataclasses.replace(Config(), max_notional_usd=50.0, max_daily_loss_usd=20.0,
-                               risk_fraction=0.01, min_base_size=1e-5)
+                               risk_fraction=0.01, min_base_size=1e-5,
+                               strategy_file="strategy.json")
 
 
 BUY = [100.0] * 80 + [130.0]
