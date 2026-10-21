@@ -162,3 +162,26 @@ same walk-forward test.
 
 Demo tooling for learning, not financial advice. Real crypto trading can lose
 real money.
+
+## Futures (perpetual swaps, demo)
+
+A second bot trades USDT-margined perpetual swaps, long and short:
+
+```bash
+python research.py --market swap --save   # research long/short; writes strategies/futures.json
+python check_futures.py                   # read-only pre-flight
+python -m bot.futures_runner              # trade on the demo account
+```
+
+- **Shorts** come from the same rules applied to the chart upside down, so a breakout
+  becomes a breakdown without a second set of parameters. Research tests every strategy
+  long-only and long+short.
+- **Size and leverage:** each trade loses `FUT_RISK_FRACTION` of equity at the stop.
+  Leverage is set from volatility: the highest that keeps the liquidation price at least
+  `FUT_LIQ_BUFFER`× further away than the stop, capped at `FUT_MAX_LEVERAGE`. Margin
+  never exceeds `FUT_MAX_MARGIN_FRACTION` of equity. Margin is **isolated**.
+- **The stop-loss lives on OKX** (an algo order closing the whole position), so it works
+  even if the bot or PC is down. A position without its stop is closed immediately;
+  a missing stop is re-placed on the next poll.
+- State: `state_futures.json`; log: `logs/futures.log`. The `KILL` file blocks entries
+  for both bots.

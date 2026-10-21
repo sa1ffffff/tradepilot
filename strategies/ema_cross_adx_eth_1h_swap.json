@@ -1,0 +1,24 @@
+{
+  "symbol": "ETH/USDT:USDT",
+  "timeframe": "1h",
+  "name": "ema_cross_adx",
+  "params": {
+    "fast": 20,
+    "slow": 50,
+    "adx_min": 25
+  },
+  "stop_atr": 3.0,
+  "tp_r": null,
+  "shorts": false,
+  "evidence": {
+    "trades": 95,
+    "win_rate_pct": 26.3,
+    "profit_factor": 1.57,
+    "total_return_pct": 58.98,
+    "max_drawdown_pct": -24.19,
+    "folds_positive": 3,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.020%, taker 0.050% + 2 bps slippage, 70% assumed maker fills; expected cost 0.035%/side normal, 0.070% on stops, 0.070% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-21T07:28+00:00"
+}

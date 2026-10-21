@@ -33,7 +33,8 @@ class Trade:
     pnl: float
     ret_pct: float      # pnl as % of equity at entry
     R: float            # pnl / amount risked
-    reason: str         # signal | stop | tp | end
+    reason: str         # signal | stop | tp | end | liquidated
+    side: str = "long"
 
 
 def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: int | None = None,
@@ -91,6 +92,96 @@ def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: in
 
 def run(df: pd.DataFrame, spec: StrategySpec, cfg) -> tuple[list[Trade], list[float], float]:
     return simulate(signals(df, spec), spec, cfg)
+
+
+def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: int | None = None,
+                equity: float | None = None) -> tuple[list[Trade], list[float], float]:
+    """Long/short perpetual-swap simulation over a frame from strategies.signals_ls().
+
+    Same execution rules as simulate(), plus: margin accounting (equity only
+    moves by realised P&L), size and leverage from bot.futures.plan, funding
+    charged against the position every bar (cfg.fut_funding_8h, both sides,
+    conservatively), and isolated liquidation if a bar opens beyond the
+    liquidation price (loses the position's margin). A long is closed by its
+    exit signal or a short entry, and vice versa; the reversal can happen on
+    the same bar. `cfg` should be futures_cfg(...) so costs are swap fees.
+    """
+    from bot.futures import plan as futures_plan
+
+    end = len(sig) if end is None else end
+    equity = cfg.backtest_start_equity if equity is None else equity
+    t = sig["time"].to_numpy()
+    o, h, l, c = (sig[k].to_numpy(dtype=float) for k in ("open", "high", "low", "close"))
+    a = sig["atr"].to_numpy(dtype=float)
+    le, lx = sig["entry"].to_numpy(), sig["exit"].to_numpy()
+    se, sx = sig["short_entry"].to_numpy(), sig["short_exit"].to_numpy()
+    passive, urgent = passive_cost(cfg), taker_cost(cfg)
+    bar_hours = (pd.Timestamp(t[1]) - pd.Timestamp(t[0])).total_seconds() / 3600 if len(t) > 1 else 1
+    funding_per_bar = cfg.fut_funding_8h * bar_hours / 8
+
+    trades: list[Trade] = []
+    curve: list[float] = []
+    pos = None
+
+    def close(i: int, px: float, reason: str) -> None:
+        nonlocal equity, pos
+        d = pos["dir"]
+        if reason == "liquidated":
+            pnl = -pos["margin"] - pos["fees"] - pos["funding"]
+        else:
+            fee = pos["size"] * px * (urgent if reason == "stop" else passive)
+            pnl = d * (px - pos["entry"]) * pos["size"] - pos["fees"] - fee - pos["funding"]
+        equity += pnl
+        trades.append(Trade(pd.Timestamp(pos["time"]), pd.Timestamp(t[i]), pos["entry"], px,
+                            pos["size"], pnl, 100 * pnl / pos["equity"],
+                            pnl / pos["risk"] if pos["risk"] else 0.0, reason,
+                            "long" if d > 0 else "short"))
+        pos = None
+
+    def open_(i: int, d: int) -> None:
+        nonlocal pos
+        dist = spec.stop_atr * a[i]
+        if not dist > 0 or too_costly(cfg, c[i], dist):
+            return
+        p = futures_plan(equity, c[i], dist, d, cfg)
+        if p is None:
+            return
+        pos = {"dir": d, "time": t[i], "entry": c[i], "size": p.size, "margin": p.margin,
+               "stop": p.stop_price, "liq": p.liq_price, "equity": equity,
+               "risk": p.size * dist, "fees": p.notional * passive, "funding": 0.0,
+               "tp": c[i] + d * spec.tp_r * dist if spec.tp_r else None}
+
+    for i in range(start, end):
+        if pos is not None:
+            d = pos["dir"]
+            pos["funding"] += pos["size"] * c[i] * funding_per_bar
+            worst = l[i] if d > 0 else h[i]
+            best = h[i] if d > 0 else l[i]
+            if d * (o[i] - pos["liq"]) <= 0:
+                close(i, pos["liq"], "liquidated")
+            elif d * (worst - pos["stop"]) <= 0:
+                px = min(o[i], pos["stop"]) if d > 0 else max(o[i], pos["stop"])
+                close(i, px, "stop")
+            elif pos["tp"] is not None and d * (best - pos["tp"]) >= 0:
+                px = max(o[i], pos["tp"]) if d > 0 else min(o[i], pos["tp"])
+                close(i, px, "tp")
+
+        if pos is not None:
+            if (pos["dir"] > 0 and (lx[i] or se[i])) or (pos["dir"] < 0 and (sx[i] or le[i])):
+                close(i, c[i], "signal")
+        if pos is None:
+            if le[i]:
+                open_(i, 1)
+            elif se[i]:
+                open_(i, -1)
+
+        curve.append(equity + (pos["dir"] * (c[i] - pos["entry"]) * pos["size"] - pos["fees"]
+                               - pos["funding"] if pos else 0.0))
+
+    if pos is not None:
+        close(end - 1, c[end - 1], "end")
+        curve[-1] = equity
+    return trades, curve, equity
 
 
 def metrics(trades: list[Trade], curve: list[float], start_equity: float, end_equity: float,

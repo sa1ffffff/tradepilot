@@ -34,8 +34,12 @@ import pandas as pd
 from config import Config
 from bot.costs import passive_cost, round_trip, taker_cost
 from bot.data import load_history
-from bot.engine import metrics, simulate
-from bot.strategies import STRATEGIES, grid, signals
+from bot.engine import metrics, simulate, simulate_ls
+from bot.futures import futures_cfg
+from bot.strategies import STRATEGIES, grid, grid_ls, signals, signals_ls
+
+# market -> (signal function, simulator, parameter grid)
+MARKETS = {"spot": (signals, simulate, grid), "swap": (signals_ls, simulate_ls, grid_ls)}
 
 FOLDS = 4
 MIN_TRAIN_TRADES = 10
@@ -60,7 +64,8 @@ def pick(candidates, train_end_time):
     return best
 
 
-def walk_forward(df: pd.DataFrame, candidates, cfg) -> dict:
+def walk_forward(df: pd.DataFrame, candidates, cfg, market: str = "spot") -> dict:
+    sig_fn, sim_fn, _ = MARKETS[market]
     n = len(df)
     seg = n // (FOLDS + 1)
     equity = cfg.backtest_start_equity
@@ -73,8 +78,8 @@ def walk_forward(df: pd.DataFrame, candidates, cfg) -> dict:
             curve += [equity] * (hi - lo)
             folds.append({"chosen": None, "return_pct": 0.0})
             continue
-        sig = signals(df, spec)  # recomputed rather than kept: ~120 frames per dataset add up
-        trades, c, equity = simulate(sig, spec, cfg, lo, hi, equity)
+        sig = sig_fn(df, spec)  # recomputed rather than kept: ~120 frames per dataset add up
+        trades, c, equity = sim_fn(sig, spec, cfg, lo, hi, equity)
         oos_trades += trades
         curve += c
         folds.append({"chosen": spec.label(), "return_pct": round((equity / start_eq - 1) * 100, 2)})
@@ -95,9 +100,12 @@ def verdict(m: dict) -> str:
     return "no edge"
 
 
-def research(cfg, symbols, timeframes, days, offline, source="okx"):
+def research(cfg, symbols, timeframes, days, offline, source="okx", market="spot"):
+    sig_fn, sim_fn, grid_fn = MARKETS[market]
     rows = []
     for symbol in symbols:
+        if market == "swap" and ":" not in symbol:
+            symbol = f"{symbol}:{symbol.split('/')[1]}"  # BTC/USDT -> BTC/USDT:USDT perpetual
         for tf in timeframes:
             df = load_history(cfg, symbol, tf, days, refresh=not offline, source=source)
             print(f"  {symbol} {tf}: {len(df)} bars "
@@ -105,13 +113,14 @@ def research(cfg, symbols, timeframes, days, offline, source="okx"):
             everything = []
             for name in STRATEGIES:
                 cands = []
-                for spec in grid(name):
-                    cands.append((spec, simulate(signals(df, spec), spec, cfg)[0]))
+                for spec in grid_fn(name):
+                    cands.append((spec, sim_fn(sig_fn(df, spec), spec, cfg)[0]))
                 everything += cands
                 rows.append({"symbol": symbol, "timeframe": tf, "strategy": name,
-                             **walk_forward(df, cands, cfg), "_cands": cands, "_df": df})
+                             **walk_forward(df, cands, cfg, market), "_cands": cands, "_df": df})
             rows.append({"symbol": symbol, "timeframe": tf, "strategy": "auto",
-                         **walk_forward(df, everything, cfg), "_cands": everything, "_df": df})
+                         **walk_forward(df, everything, cfg, market), "_cands": everything,
+                         "_df": df})
     return rows
 
 
@@ -132,12 +141,13 @@ def table(rows) -> str:
 def write_report(rows, args, cfg) -> str:
     os.makedirs("reports", exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    src = "" if args.source == "okx" else f"_{args.source}"
+    src = ("" if args.source == "okx" else f"_{args.source}") + ("_swap" if args.market == "swap" else "")
     path = os.path.join("reports", f"research_{stamp}_{cfg.execution}{src}.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Research run {stamp} UTC\n\n")
         f.write(f"{args.days} days, {FOLDS}-fold anchored walk-forward. {cost_line(cfg)}. "
                 f"Risk {cfg.risk_fraction:.1%}/trade. "
+                + (futures_line(cfg) if args.market == "swap" else "") +
                 "All figures are out-of-sample (last 80% of the period).\n\n")
         n = sum(r["strategy"] != "auto" for r in rows)
         f.write(f"**Read with care:** {n} strategy/market combinations were tested, so a few "
@@ -161,6 +171,13 @@ def cost_line(cfg) -> str:
     return (f"{line}; expected cost {passive_cost(cfg):.3%}/side normal, {taker_cost(cfg):.3%} on "
             f"stops, {round_trip(cfg):.3%} round trip; entries skipped when costs exceed "
             f"{cfg.max_cost_per_r:.0%} of the risk")
+
+
+def futures_line(cfg) -> str:
+    return (f"Perpetual swaps: long and short, isolated margin, leverage from volatility up to "
+            f"{cfg.fut_max_leverage}x with liquidation >= {cfg.fut_liq_buffer:g}x the stop distance, "
+            f"margin <= {cfg.fut_max_margin_fraction:.0%} of equity, funding "
+            f"{cfg.fut_funding_8h:.3%}/8h charged to both sides. ")
 
 
 def strategy_doc(row, cfg) -> tuple[dict, str]:
@@ -203,8 +220,9 @@ def save_all(rows, cfg) -> None:
     for r in rows:
         if r["verdict"] != "CANDIDATE" or r["strategy"] == "auto":
             continue
+        swap = "_swap" if ":" in r["symbol"] else ""
         path = os.path.join("strategies", f"{r['strategy']}_{r['symbol'].split('/')[0].lower()}_"
-                                          f"{r['timeframe']}.json")
+                                          f"{r['timeframe']}{swap}.json")
         doc, label = strategy_doc(r, cfg)
         write_json(path, doc)
         print(f"  Wrote {path}: {label}")
@@ -222,7 +240,10 @@ def main() -> None:
     p.add_argument("--offline", action="store_true", help="use cached candles only")
     p.add_argument("--source", choices=["okx", "cryptocom"], default="okx",
                    help="whose price history to test on; the bot always trades OKX")
-    p.add_argument("--save", action="store_true", help="write the best passing strategy to strategy.json")
+    p.add_argument("--market", choices=["spot", "swap"], default="spot",
+                   help="swap: perpetual futures, long+short, with leverage and funding")
+    p.add_argument("--save", action="store_true", help="write the best passing strategy to "
+                   "strategy.json (spot) or FUT_STRATEGY_FILE (swap)")
     p.add_argument("--force", action="store_true", help="with --save: write even if nothing passed")
     p.add_argument("--save-all", action="store_true", help="write every CANDIDATE to strategies/")
     args = p.parse_args()
@@ -230,12 +251,14 @@ def main() -> None:
     overrides = {k: v for k, v in (("execution", args.execution), ("maker_fee", args.maker_fee),
                                    ("taker_fee", args.taker_fee),
                                    ("maker_fill_rate", args.maker_fill_rate)) if v is not None}
+    if args.market == "swap":
+        cfg = futures_cfg(cfg)  # swap fees, futures risk, futures strategy file
     cfg = dataclasses.replace(cfg, **overrides)
 
     print(f"\n  Research: {args.days} days of {args.source} candles, walk-forward out-of-sample")
     print(f"  {cost_line(cfg)}\n")
     rows = research(cfg, args.symbols.split(","), args.timeframes.split(","), args.days, args.offline,
-                    args.source)
+                    args.source, args.market)
     print("\n" + table(rows))
     print(f"\n  Report: {write_report(rows, args, cfg)}")
     if args.save_all:

@@ -11,6 +11,7 @@ what is tested is exactly what trades.
 """
 from __future__ import annotations
 
+import dataclasses
 import itertools
 from dataclasses import dataclass, field
 
@@ -166,20 +167,23 @@ class StrategySpec:
     params: dict
     stop_atr: float = 2.0
     tp_r: float | None = None
+    shorts: bool = False      # futures only: also trade the mirrored short signals
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "params": self.params, "stop_atr": self.stop_atr, "tp_r": self.tp_r}
+        return {"name": self.name, "params": self.params, "stop_atr": self.stop_atr, "tp_r": self.tp_r,
+                "shorts": self.shorts}
 
     @classmethod
     def from_dict(cls, d: dict) -> "StrategySpec":
         if d["name"] not in STRATEGIES:
             raise ValueError(f"unknown strategy {d['name']!r}; known: {', '.join(STRATEGIES)}")
-        return cls(d["name"], dict(d.get("params", {})), float(d.get("stop_atr", 2.0)), d.get("tp_r"))
+        return cls(d["name"], dict(d.get("params", {})), float(d.get("stop_atr", 2.0)), d.get("tp_r"),
+                   bool(d.get("shorts", False)))
 
     def label(self) -> str:
         p = ",".join(f"{k}={v}" for k, v in self.params.items())
         tp = f"tp={self.tp_r}R" if self.tp_r else "no tp"
-        return f"{self.name}({p}) stop={self.stop_atr}ATR {tp}"
+        return f"{self.name}({p}) stop={self.stop_atr}ATR {tp}" + (" +shorts" if self.shorts else "")
 
 
 def default_spec() -> StrategySpec:
@@ -198,9 +202,38 @@ def signals(df: pd.DataFrame, spec: StrategySpec) -> pd.DataFrame:
     return out
 
 
+def invert(df: pd.DataFrame) -> pd.DataFrame:
+    """The chart upside down: price -> 1/price, highs and lows swapped. A rule's
+    long signals on this chart are its short signals on the real one (a breakout
+    becomes a breakdown, a trend filter flips, a trailing stop moves above price),
+    without a second set of parameters to tune."""
+    out = df.copy()
+    out["open"], out["close"] = 1 / df["open"], 1 / df["close"]
+    out["high"], out["low"] = 1 / df["low"], 1 / df["high"]
+    return out
+
+
+def signals_ls(df: pd.DataFrame, spec: StrategySpec) -> pd.DataFrame:
+    """signals() plus short_entry / short_exit columns (all False unless spec.shorts)."""
+    out = signals(df, spec)
+    if spec.shorts:
+        inv = signals(invert(df), spec)
+        out["short_entry"] = inv["entry"].to_numpy()
+        out["short_exit"] = inv["exit"].to_numpy()
+    else:
+        out["short_entry"] = False
+        out["short_exit"] = False
+    return out
+
+
 def warmup_bars(spec: StrategySpec) -> int:
     """Bars the live bot must fetch so indicators match the backtest."""
     return max(int(v) for v in list(spec.params.values()) + [50] if isinstance(v, (int, float))) * 3 + 50
+
+
+def grid_ls(name: str) -> list[StrategySpec]:
+    """Futures grid: every spec long-only and long+short."""
+    return [dataclasses.replace(s, shorts=sh) for s in grid(name) for sh in (False, True)]
 
 
 def grid(name: str) -> list[StrategySpec]:

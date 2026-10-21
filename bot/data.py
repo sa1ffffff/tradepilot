@@ -58,7 +58,8 @@ def load_history(cfg, symbol: str, timeframe: str, days: int, refresh: bool = Tr
     """`days` of closed candles from the cache, topped up from the exchange."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     prefix = "" if source == "okx" else f"{source}_"
-    path = os.path.join(CACHE_DIR, f"{prefix}{symbol.replace('/', '-')}_{timeframe}.csv")
+    name = symbol.replace("/", "-").replace(":", "-")  # BTC/USDT:USDT -> BTC-USDT-USDT (swap)
+    path = os.path.join(CACHE_DIR, f"{prefix}{name}_{timeframe}.csv")
     cached = pd.read_csv(path, parse_dates=["time"]) if os.path.exists(path) else None
     start = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
 

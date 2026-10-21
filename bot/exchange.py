@@ -84,7 +84,7 @@ class OkxExchange:
         return {"id": o["id"], "filled": filled, "average": avg, "fee_base": fee_base,
                 "fee_quote": fee_quote, "status": o.get("status")}
 
-    def _maker_attempt(self, side: str, amount: float) -> dict | None:
+    def _maker_attempt(self, side: str, amount: float, params: dict | None = None) -> dict | None:
         """One post-only limit at the best bid (buy) / ask (sell); cancelled if
         still open after maker_wait_seconds. Returns what filled, or None."""
         import ccxt
@@ -95,7 +95,7 @@ class OkxExchange:
             return None
         try:
             o = self.client.create_order(self.cfg.symbol, "limit", side, amount, levels[0][0],
-                                         params={"postOnly": True})
+                                         params={"postOnly": True, **(params or {})})
         except ccxt.InvalidOrder:
             return None  # would have crossed the spread; re-price on the next attempt
         o = self._wait(o["id"], self.cfg.maker_wait_seconds)
@@ -107,21 +107,23 @@ class OkxExchange:
             o = self._wait(o["id"], 5)  # final state, including any fill that raced the cancel
         return self._parse_fill(o)
 
-    def _execute(self, side: str, amount: float, urgent: bool) -> dict:
+    def _execute(self, side: str, amount: float, urgent: bool, params: dict | None = None) -> dict:
         parts: list[tuple[dict, bool]] = []  # (fill, was_maker)
         remaining = amount
         min_amt = self.min_amount()
         if self.cfg.execution == "maker" and not urgent:
             for _ in range(self.cfg.maker_attempts):
-                f = self._maker_attempt(side, remaining)
+                f = self._maker_attempt(side, remaining, params)
                 if f and f["filled"] > 0:
                     parts.append((f, True))
                     remaining -= f["filled"]
                 if remaining < min_amt:
                     break
         if remaining >= min_amt:
-            params = {"tgtCcy": "base_ccy"} if side == "buy" else {}
-            o = self.client.create_order(self.cfg.symbol, "market", side, remaining, params=params)
+            mparams = dict(params or {})
+            if side == "buy" and self.market.get("spot"):
+                mparams["tgtCcy"] = "base_ccy"
+            o = self.client.create_order(self.cfg.symbol, "market", side, remaining, params=mparams)
             parts.append((self._parse_fill(self._wait(o["id"], 10)), False))
 
         filled = sum(f["filled"] for f, _ in parts)

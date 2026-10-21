@@ -29,16 +29,17 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def get_logger(log_dir: str = "logs") -> logging.Logger:
+def get_logger(log_dir: str = "logs", name: str = "bot") -> logging.Logger:
+    """JSON logger writing to stdout and <log_dir>/<name>.log."""
     os.makedirs(log_dir, exist_ok=True)
-    logger = logging.getLogger("bot")
+    logger = logging.getLogger(name)
     if logger.handlers:
         return logger
     logger.setLevel(logging.INFO)
     fmt = JsonFormatter()
     handlers = (
         logging.StreamHandler(),
-        logging.FileHandler(os.path.join(log_dir, "bot.log"), encoding="utf-8"),
+        logging.FileHandler(os.path.join(log_dir, f"{name}.log"), encoding="utf-8"),
     )
     for handler in handlers:
         handler.setFormatter(fmt)
