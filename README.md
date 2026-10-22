@@ -133,6 +133,15 @@ up. One or two days is far too few trades to show profitability by itself;
 the matching proves the backtest is a faithful model of the bot, and the
 research results are the evidence on profit.
 
+### Dashboard
+
+Double-click `start_dashboard.bat` (or run `python dashboard.py`) and it
+opens http://127.0.0.1:8765 in your browser. Click **Update** to refresh:
+both bots' status, open positions valued at the live demo price, today's and
+all-time P&L, recent trades and the latest health check. It's read-only:
+it only reads the logs and state files plus public prices, never your keys,
+and it's reachable from this PC only. Close its window to stop it.
+
 ## Settings (`.env`)
 
 | Setting | Meaning |

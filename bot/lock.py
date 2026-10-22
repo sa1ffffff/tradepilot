@@ -25,3 +25,26 @@ def acquire(state_file: str):
         raise SystemExit(f"Another copy of this bot is already running ({path} is locked). "
                          "Stop it first (Ctrl-C in its window) -- two copies would double-trade.")
     return f
+
+
+def is_held(state_file: str) -> bool:
+    """True if a running bot holds the lock for state_file. Probes by taking
+    the lock for an instant and releasing it at once."""
+    path = state_file + ".lock"
+    if not os.path.exists(path):
+        return False
+    with open(path, "a+") as f:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(f, fcntl.LOCK_UN)
+        except OSError:
+            return True
+    return False

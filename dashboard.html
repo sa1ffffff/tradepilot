@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tradepilot Dashboard</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #e3e6eb; --text: #14171c; --muted: #677080;
+    --accent: #2457d6; --accent-text: #ffffff; --up: #127a43; --down: #c0322b; --warn: #a35d00;
+    --up-bg: #e6f4ec; --down-bg: #fbeceb; --warn-bg: #fdf1df;
+    --radius: 12px; --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --panel: #161a21; --line: #262c36; --text: #e8ebf0; --muted: #8b94a3;
+      --accent: #5b8cff; --accent-text: #0b0e13; --up: #3ccf7e; --down: #ff6b62; --warn: #f0a94a;
+      --up-bg: #12301f; --down-bg: #3a1716; --warn-bg: #3a2a12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+          background: var(--warn-bg); color: var(--warn); }
+  .spacer { flex: 1; }
+  .updated { color: var(--muted); font-size: 13px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 10px 18px;
+           background: var(--accent); color: var(--accent-text); cursor: pointer;
+           transition: transform 120ms var(--ease), opacity 120ms var(--ease); }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.6; cursor: progress; }
+  button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: 2px; }
+  .grid { display: grid; gap: 12px; }
+  .tiles { grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; }
+  .two { grid-template-columns: 1fr 1fr; margin-bottom: 12px; }
+  @media (max-width: 760px) { .tiles { grid-template-columns: 1fr 1fr; } .two { grid-template-columns: 1fr; } }
+  @media (max-width: 420px) { .big { font-size: 21px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+  .label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .big { font-size: 26px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--up); } .dot.off { background: var(--down); }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-size: 12px; font-weight: 600; }
+  td.num, th.num { text-align: right; }
+  tr:last-child td { border-bottom: 0; }
+  .tag { font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 6px; background: var(--bg); }
+  .tag.long { color: var(--up); } .tag.short { color: var(--down); }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .health.ok { border-left: 4px solid var(--up); } .health.att { border-left: 4px solid var(--warn); }
+  .health ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  .banner { display: none; margin-bottom: 12px; padding: 10px 14px; border-radius: 10px;
+            background: var(--down-bg); color: var(--down); font-weight: 600; }
+  .slots { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 6px; }
+  section { margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tradepilot</h1>
+    <span class="pill" id="mode">DEMO</span>
+    <span class="spacer"></span>
+    <span class="updated" id="updated">Not updated yet</span>
+    <button id="update" type="button">Update</button>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="grid tiles">
+    <div class="card"><div class="label">Open positions P&amp;L</div><div class="big" id="t-open">–</div><div class="sub" id="t-open-sub"></div></div>
+    <div class="card"><div class="label">Today (realized)</div><div class="big" id="t-today">–</div><div class="sub" id="t-today-sub"></div></div>
+    <div class="card"><div class="label">All time (realized)</div><div class="big" id="t-all">–</div><div class="sub" id="t-all-sub"></div></div>
+    <div class="card"><div class="label">Health</div><div class="big" id="t-health">–</div><div class="sub" id="t-health-sub"></div></div>
+  </div>
+
+  <div class="grid two">
+    <div class="card" id="spot-card"></div>
+    <div class="card" id="fut-card"></div>
+  </div>
+
+  <section class="card">
+    <h2>Open positions</h2>
+    <div class="table-wrap" id="positions"></div>
+  </section>
+
+  <section class="card">
+    <h2>Recent trades</h2>
+    <div class="table-wrap" id="trades"></div>
+  </section>
+
+  <section class="card health" id="health"></section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const usd = (v, sign = true) => v == null ? "–" :
+  (sign && v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const cls = (v) => v > 0 ? "up" : v < 0 ? "down" : "";
+const px = (v) => v == null ? "–" : Number(v).toLocaleString(undefined, {maximumFractionDigits: v < 10 ? 5 : 2});
+const when = (iso) => iso ? new Date(iso).toLocaleString(undefined, {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "–";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const sym = (s) => esc(String(s).replace(":USDT", ""));
+
+function setMoney(id, v) { const el = $(id); el.textContent = usd(v); el.className = "big " + cls(v); }
+
+function botCard(name, b, extra) {
+  const on = b.running;
+  return `<div class="label">${name} bot</div>
+    <div class="status" style="margin-top:6px"><span class="dot ${on ? "on" : "off"}"></span>${on ? "Running" : "Not running"}</div>
+    <div class="sub">Started ${when(b.since)}</div>${extra}`;
+}
+
+function render(d) {
+  $("mode").textContent = d.demo ? "DEMO" : "LIVE";
+  const banner = [];
+  if (!d.bots.spot.running) banner.push("The spot bot is not running.");
+  if (!d.bots.futures.running) banner.push("The futures bot is not running.");
+  if (d.kill_switch) banner.push("Kill switch is ON: no new spot entries.");
+  if (!d.prices_ok) banner.push("Couldn't reach OKX for live prices; open P&L is unknown.");
+  $("banner").style.display = banner.length ? "block" : "none";
+  $("banner").textContent = banner.join(" ");
+
+  const open = d.positions.reduce((s, p) => s + (p.unrealized ?? 0), 0);
+  setMoney("t-open", d.positions.length ? open : 0);
+  $("t-open-sub").textContent = d.positions.length ? `${d.positions.length} open` : "No open positions";
+  const today = d.today.spot.pnl + d.today.futures.pnl;
+  setMoney("t-today", today);
+  $("t-today-sub").textContent = `Spot ${usd(d.today.spot.pnl)} · Futures ${usd(d.today.futures.pnl)} · ${d.today.spot.trades + d.today.futures.trades} trades`;
+  const all = d.all_time.spot.pnl + d.all_time.futures.pnl;
+  const n = d.all_time.spot.trades + d.all_time.futures.trades, w = d.all_time.spot.wins + d.all_time.futures.wins;
+  setMoney("t-all", all);
+  $("t-all-sub").textContent = `${n} trades · ${w} won`;
+  const h = d.health;
+  $("t-health").textContent = h.status || "–";
+  $("t-health").className = "big " + (h.status === "OK" ? "up" : h.status ? "down" : "");
+  $("t-health-sub").textContent = `${d.errors_24h} errors/warnings in 24h`;
+
+  $("spot-card").innerHTML = botCard("Spot", d.bots.spot,
+    `<div class="sub">${esc(d.bots.spot.market)} · ${esc(d.bots.spot.strategy)}</div>`);
+  const slots = d.bots.futures.slots;
+  $("fut-card").innerHTML = botCard("Futures", d.bots.futures,
+    `<div class="sub">${slots.length} strategies</div><details><summary>Show strategies</summary><ul class="slots">${
+      slots.map((s) => `<li>${esc(s.replace(":USDT", ""))}</li>`).join("")}</ul></details>`);
+
+  $("positions").innerHTML = d.positions.length ? `<table><thead><tr>
+      <th>Bot</th><th>Market</th><th>Side</th><th class="num">Size</th><th class="num">Entry</th>
+      <th class="num">Now</th><th class="num">Stop</th><th class="num">P&amp;L</th><th>Opened</th></tr></thead><tbody>${
+    d.positions.map((p) => `<tr><td>${p.bot}</td><td>${sym(p.symbol)}</td>
+      <td><span class="tag ${p.side}">${p.side}${p.leverage > 1 ? " " + p.leverage + "×" : ""}</span></td>
+      <td class="num">${p.size.toFixed(4)}</td><td class="num">${px(p.entry)}</td><td class="num">${px(p.price)}</td>
+      <td class="num">${px(p.stop)}</td><td class="num ${cls(p.unrealized)}">${usd(p.unrealized)}</td>
+      <td>${when(p.opened)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">No open positions.</div>`;
+
+  $("trades").innerHTML = d.trades.length ? `<table><thead><tr>
+      <th>Closed</th><th>Bot</th><th>Market</th><th>Side</th><th class="num">Entry</th><th class="num">Exit</th>
+      <th>Why</th><th class="num">P&amp;L</th></tr></thead><tbody>${
+    d.trades.map((t) => `<tr><td>${when(t.time)}</td><td>${t.bot}</td><td>${sym(t.symbol)}</td>
+      <td><span class="tag ${t.side}">${t.side}</span></td><td class="num">${px(t.entry)}</td><td class="num">${px(t.exit)}</td>
+      <td>${esc(t.reason)}</td><td class="num ${cls(t.pnl)}">${usd(t.pnl)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">No closed trades yet.</div>`;
+
+  $("health").className = "card health " + (h.status === "OK" ? "ok" : h.status ? "att" : "");
+  $("health").innerHTML = `<h2>Latest health check</h2><div class="sub">${esc(h.title)}</div>
+    <ul>${h.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`;
+}
+
+let lastUpdate = null;
+function tick() {
+  if (!lastUpdate) return;
+  const s = Math.round((Date.now() - lastUpdate) / 1000);
+  $("updated").textContent = "Updated " + (s < 60 ? `${s}s ago` : `${Math.floor(s / 60)} min ago`);
+}
+setInterval(tick, 5000);
+
+async function update() {
+  const btn = $("update");
+  btn.disabled = true; btn.textContent = "Updating…";
+  try {
+    const r = await fetch("/api/status", {cache: "no-store"});
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    render(d);
+    lastUpdate = Date.now(); tick();
+  } catch (e) {
+    $("banner").style.display = "block";
+    $("banner").textContent = "Update failed: " + e.message + ". Is dashboard.py still running?";
+  } finally {
+    btn.disabled = false; btn.textContent = "Update";
+  }
+}
+$("update").addEventListener("click", update);
+update();
+</script>
+</body>
+</html>
