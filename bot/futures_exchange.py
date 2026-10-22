@@ -126,6 +126,21 @@ class OkxFutures(OkxExchange):
             raise RuntimeError(f"stop-loss rejected: {data.get('sCode')} {data.get('sMsg')}")
         return data["algoId"]
 
+    def move_protection(self, direction: int, stop: float, tp: float | None = None) -> str:
+        """Replace the resting stop: place the new one first, then cancel the old
+        ones, so the position is never without a stop. (Both are reduce-only
+        close-all orders, so even if both fired only one could close anything.)"""
+        old = self.pending_protection()
+        new_id = self.place_protection(direction, stop, tp)
+        stale = [i for i in old if i != new_id]
+        if stale:
+            self.client.privatePostTradeCancelAlgos([{"algoId": i, "instId": self.inst_id}
+                                                     for i in stale])
+        return new_id
+
+    def last_price(self) -> float:
+        return float(self.client.fetch_ticker(self.cfg.symbol)["last"])
+
     def pending_protection(self) -> list[str]:
         ids = []
         for ord_type in ("conditional", "oco"):

@@ -8,5 +8,7 @@
   "tp_r": null,
   "shorts": true,
   "max_cost_per_r": 0,
-  "fut_risk_fraction": 0.003
+  "fut_risk_fraction": 0.003,
+  "trail_start_r": 1.0,
+  "trail_mult": 1.0
 }

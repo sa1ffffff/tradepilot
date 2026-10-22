@@ -61,3 +61,28 @@ def plan(equity: float, price: float, stop_distance: float, direction: int, cfg,
     notional = size * price
     return FuturesPlan(direction, size, lev, notional / lev, notional,
                        price - direction * stop_distance, liq_price(price, direction, lev, cfg))
+
+
+def trail_stop(direction: int, entry: float, init_dist: float, stop: float, extreme: float,
+               atr: float, start_r: float, trail_atr: float) -> float:
+    """The trailing stop, shared by the engine and the live runner.
+
+    Once the best price since entry (`extreme`: highest high for a long, lowest
+    low for a short) is start_r x the initial risk in profit, the stop sits
+    trail_atr x ATR behind that best price. It only ever tightens. With
+    start_r = 1 and trail_atr equal to the strategy's stop_atr it lands near
+    breakeven when it first activates. start_r <= 0 disables it.
+    """
+    if start_r <= 0 or not init_dist > 0 or not atr > 0:
+        return stop
+    if direction * (extreme - entry) < start_r * init_dist:
+        return stop
+    candidate = extreme - direction * trail_atr * atr
+    return max(stop, candidate) if direction > 0 else min(stop, candidate)
+
+
+def trail_params(spec, cfg) -> tuple[float, float]:
+    """(start_r, trail_atr) for a strategy: the trail distance is fut_trail_mult x
+    the strategy's own stop distance, in ATRs."""
+    start_r = getattr(cfg, "fut_trail_start_r", 0.0)
+    return float(start_r), float(getattr(cfg, "fut_trail_mult", 1.0)) * spec.stop_atr

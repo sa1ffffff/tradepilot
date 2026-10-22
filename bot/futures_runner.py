@@ -34,9 +34,11 @@ import os
 import time
 from datetime import datetime, timezone
 
+import pandas as pd
+
 from config import Config
 from bot.costs import too_costly
-from bot.futures import futures_cfg, plan
+from bot.futures import futures_cfg, plan, trail_params, trail_stop
 from bot.lock import acquire as acquire_lock
 from bot.log import get_logger
 from bot.risk import RiskManager
@@ -82,6 +84,8 @@ def load_futures_strategy(cfg: Config, path: str | None = None) -> tuple[Config,
     cfg = dataclasses.replace(cfg, strategy_file=path, symbol=d.get("symbol", cfg.symbol),
                               timeframe=d.get("timeframe", cfg.timeframe),
                               max_cost_per_r=d.get("max_cost_per_r", cfg.max_cost_per_r),
+                              fut_trail_start_r=d.get("trail_start_r", cfg.fut_trail_start_r),
+                              fut_trail_mult=d.get("trail_mult", cfg.fut_trail_mult),
                               # a test slot can risk less than the researched ones
                               fut_risk_fraction=d.get("fut_risk_fraction", cfg.fut_risk_fraction))
     if ":" not in cfg.symbol:
@@ -164,6 +168,7 @@ def open_position(cfg, spec, ex, risk, store, slot, log, direction: int, bar) ->
         "contracts": fill["filled"], "stop": stop, "tp": tp, "leverage": p.leverage,
         "margin": fill["size"] * entry / p.leverage, "entry_fee": fill["fee_quote"],
         "opened": bar_time, "opened_ms": opened_ms,
+        "init_dist": dist, "extreme": entry,
     }
     store.save(risk)
     try:
@@ -187,6 +192,43 @@ def open_position(cfg, spec, ex, risk, store, slot, log, direction: int, bar) ->
                               "liq_price": live.get("liq") or round(p.liq_price, 2),
                               "risk_usd": round(fill["size"] * dist, 2),
                               "maker_share": round(fill["maker_share"], 3), "id": fill["id"]})
+
+
+def trail(cfg, spec, ex, risk, store, slot, log, sig) -> bool:
+    """Ratchet the stop behind the best price since entry (bot.futures.trail_stop)
+    on closed bars, and move the resting OKX stop to match. Returns True if the
+    new stop was already past the market and the trade was closed instead."""
+    start_r, trail_atr = trail_params(spec, cfg)
+    pos = slot["position"]
+    if start_r <= 0:
+        return False
+    d = pos["dir"]
+    pos.setdefault("init_dist", abs(pos["entry"] - pos["stop"]))  # positions opened before trailing
+    after = sig[sig["time"] > pd.Timestamp(pos["opened"])]  # bars after the entry bar
+    if after.empty:
+        return False
+    if d > 0:
+        pos["extreme"] = max(pos.get("extreme", pos["entry"]), float(after["high"].max()))
+    else:
+        pos["extreme"] = min(pos.get("extreme", pos["entry"]), float(after["low"].min()))
+    new = trail_stop(d, pos["entry"], pos["init_dist"], pos["stop"], pos["extreme"],
+                     float(sig.iloc[-1]["atr"]), start_r, trail_atr)
+    tick = pos["entry"] * 0.0002  # ignore moves smaller than 0.02%
+    if d * (new - pos["stop"]) <= tick:
+        store.save(risk)
+        return False
+    if d * (ex.last_price() - new) <= 0:  # already through it: close now, as the stop would
+        log.info("trail_hit", {"symbol": cfg.symbol, "stop": round(new, 2)})
+        close_position(ex, risk, store, slot, log, "trailing stop")
+        return True
+    old = pos["stop"]
+    ex.move_protection(d, new, pos.get("tp"))
+    pos["stop"] = new
+    store.save(risk)
+    log.info("stop_trailed", {"symbol": cfg.symbol, "side": pos["side"], "from": round(old, 2),
+                              "to": round(new, 2), "best": round(pos["extreme"], 2),
+                              "locked_pnl": round(d * (new - pos["entry"]) * pos["size"], 2)})
+    return False
 
 
 def step(cfg: Config, spec: StrategySpec, ex, risk: RiskManager, store: Store, log) -> None:
@@ -225,6 +267,9 @@ def step(cfg: Config, spec: StrategySpec, ex, risk: RiskManager, store: Store, l
     if len(sig) < 2:
         return
     bar = sig.iloc[-1]
+    if pos is not None and trail(cfg, spec, ex, risk, store, slot, log, sig):
+        return  # the trailing stop closed the trade this poll
+    pos = slot["position"]
     key = f"{cfg.symbol}:{bar['time'].isoformat()}"
     if risk.is_duplicate(key):
         return

@@ -107,6 +107,9 @@ def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end:
     the same bar. `cfg` should be futures_cfg(...) so costs are swap fees.
     """
     from bot.futures import plan as futures_plan
+    from bot.futures import trail_params, trail_stop
+
+    trail_start_r, trail_atr = trail_params(spec, cfg)
 
     end = len(sig) if end is None else end
     equity = cfg.backtest_start_equity if equity is None else equity
@@ -149,7 +152,8 @@ def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end:
         pos = {"dir": d, "time": t[i], "entry": c[i], "size": p.size, "margin": p.margin,
                "stop": p.stop_price, "liq": p.liq_price, "equity": equity,
                "risk": p.size * dist, "fees": p.notional * passive, "funding": 0.0,
-               "tp": c[i] + d * spec.tp_r * dist if spec.tp_r else None}
+               "tp": c[i] + d * spec.tp_r * dist if spec.tp_r else None,
+               "init_dist": dist, "extreme": c[i]}
 
     for i in range(start, end):
         if pos is not None:
@@ -174,6 +178,12 @@ def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end:
                 open_(i, 1)
             elif se[i]:
                 open_(i, -1)
+        elif pos["time"] != t[i]:
+            # trailing stop: ratchet on this bar's close, effective from the next bar
+            d = pos["dir"]
+            pos["extreme"] = max(pos["extreme"], h[i]) if d > 0 else min(pos["extreme"], l[i])
+            pos["stop"] = trail_stop(d, pos["entry"], pos["init_dist"], pos["stop"],
+                                     pos["extreme"], a[i], trail_start_r, trail_atr)
 
         curve.append(equity + (pos["dir"] * (c[i] - pos["entry"]) * pos["size"] - pos["fees"]
                                - pos["funding"] if pos else 0.0))

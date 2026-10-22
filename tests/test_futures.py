@@ -144,6 +144,14 @@ class FakeFutures:
     def cancel_protection(self):
         self.algos = []
 
+    def move_protection(self, d, stop, tp=None):
+        self.calls.append(("move", stop))
+        self.algos = [("sl", d, stop, tp)]
+        return "a2"
+
+    def last_price(self):
+        return float(self.df["close"].iloc[-1])
+
     def closed_pnl(self, opened_ms, tries=5):
         return {"pnl": -12.5, "close_price": 99.0, "fee": -0.2, "funding": 0.0, "kind": "closed"}
 
@@ -266,3 +274,58 @@ def test_strategy_file_can_lower_risk_for_a_test_slot():
     cfg, spec = load_futures_strategy(futures_cfg(Config()), "strategies/futures_test_btc_5m_swap.json")
     assert (cfg.symbol, cfg.timeframe, cfg.fut_risk_fraction) == ("BTC/USDT:USDT", "5m", 0.003)
     assert spec.shorts
+
+
+# --- trailing stop -------------------------------------------------------------
+
+def test_trail_stop_rule():
+    from bot.futures import trail_stop
+    # short, 1R = 270: not yet 1R in profit -> unchanged
+    assert trail_stop(-1, 84485.8, 270.0, 84755.8, 84300, 100, 1.0, 2.0) == 84755.8
+    # 3,000 in profit, best low 81,100, 2 x ATR 100 -> stop 81,300
+    assert trail_stop(-1, 84485.8, 270.0, 84755.8, 81100, 100, 1.0, 2.0) == 81300
+    # never loosens
+    assert trail_stop(1, 100, 2, 101.5, 103, 1, 1.0, 2.0) == 101.5
+    # disabled
+    assert trail_stop(1, 100, 2, 98, 110, 1, 0.0, 2.0) == 98
+
+
+def test_engine_trailing_locks_in_profit():
+    # rally after a long entry, then a slide back to the entry price: with the
+    # trail the trade exits on its stop in profit; without it, it gives it all back
+    closes = [100.0] * 80 + [101.0] + list(np.linspace(101, 115, 15)) + list(np.linspace(115, 100, 15))
+    df = frame(closes)
+    spec = StrategySpec("ema_cross", {"fast": 9, "slow": 21}, stop_atr=2.0)
+    base = dataclasses.replace(futures_cfg(Config()), max_cost_per_r=0, backtest_start_equity=1000.0)
+    on, _, _ = simulate_ls(signals_ls(df, spec), spec, dataclasses.replace(base, fut_trail_start_r=1.0))
+    off, _, _ = simulate_ls(signals_ls(df, spec), spec, dataclasses.replace(base, fut_trail_start_r=0.0))
+    assert on[0].reason == "stop" and on[0].pnl > 0
+    assert on[0].pnl > off[0].pnl
+
+
+def test_runner_moves_okx_stop_as_price_runs(fcfg):
+    fcfg = dataclasses.replace(fcfg, fut_trail_start_r=1.0, fut_trail_mult=1.0)  # tight, as the BTC test slot
+    ex = FakeFutures([100.0] * 80 + [70.0])            # short entry at 70
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    pos = state.slot(fcfg.symbol)["position"]
+    first_stop = pos["stop"]
+    # price keeps falling for several bars after the entry bar
+    ex.df = frame([100.0] * 80 + [70.0, 66, 62, 58, 54, 50])
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    pos = state.slot(fcfg.symbol)["position"]
+    assert pos is not None and pos["stop"] < first_stop  # tightened downwards
+    assert ex.algos[0][2] == pos["stop"] and ("move", pos["stop"]) in ex.calls
+    assert any(m == "stop_trailed" for m, _ in log.events)
+
+
+def test_runner_closes_if_trail_is_already_past_price(fcfg):
+    fcfg = dataclasses.replace(fcfg, fut_trail_start_r=1.0, fut_trail_mult=1.0)  # tight, as the BTC test slot
+    ex = FakeFutures([100.0] * 80 + [70.0])
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    # big drop then a sharp bounce: the trail level is now below the last price
+    ex.df = frame([100.0] * 80 + [70.0, 50, 49, 48, 47, 60])
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    assert state.slot(fcfg.symbol)["position"] is None
+    assert any(m == "trail_hit" for m, _ in log.events)

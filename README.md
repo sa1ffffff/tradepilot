@@ -192,6 +192,12 @@ python -m bot.futures_runner              # trade on the demo account
 - **The stop-loss lives on OKX** (an algo order closing the whole position), so it works
   even if the bot or PC is down. A position without its stop is closed immediately;
   a missing stop is re-placed on the next poll.
+- **Trailing stop:** once a trade is `FUT_TRAIL_START_R`× its risk in profit, the OKX
+  stop follows the best price at `FUT_TRAIL_MULT`× the strategy's stop distance and only
+  ever tightens (the new stop is placed before the old one is cancelled). Defaults 2R / 2×
+  leave the researched results almost unchanged while capping big give-backs; the BTC
+  5m test slot uses a tight 1R / 1× (`trail_start_r`, `trail_mult` in its strategy file).
+  The backtest engine applies the same rule.
 - State: `state_futures.json`; log: `logs/futures.log`. The `KILL` file blocks entries
   for both bots.
 

@@ -71,6 +71,13 @@ class Config:
     fut_funding_8h: float = _f("FUT_FUNDING_8H", 0.0001)   # research charges it to both sides
     fut_max_daily_loss_usd: float = _f("FUT_MAX_DAILY_LOSS_USD", 250.0)
     fut_state_file: str = "state_futures.json"
+    # Trailing stop: once a trade is FUT_TRAIL_START_R x its initial risk in profit, the stop
+    # follows the best price at FUT_TRAIL_MULT x the strategy's stop distance (stop_atr x ATR).
+    # The defaults (2R, 2x) leave the researched results almost unchanged while capping big
+    # give-backs. FUT_TRAIL_START_R=0 turns it off. Strategy files can override both
+    # ("trail_start_r", "trail_mult").
+    fut_trail_start_r: float = _f("FUT_TRAIL_START_R", 2.0)
+    fut_trail_mult: float = _f("FUT_TRAIL_MULT", 2.0)
 
     kill_file: str = "KILL"
     state_file: str = "state.json"
