@@ -35,6 +35,10 @@ class RiskManager:
     def remember(self, key: str) -> None:
         self._seen.add(key)
 
+    def forget(self, key: str) -> None:
+        """Let a signal be acted on again (after an attempt that provably did nothing)."""
+        self._seen.discard(key)
+
     # --- daily loss tracking -------------------------------------------------
     def roll_day(self, day: date) -> None:
         if day != self._day:

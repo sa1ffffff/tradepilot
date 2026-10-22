@@ -138,6 +138,10 @@ class OkxFutures(OkxExchange):
                                                      for i in stale])
         return new_id
 
+    def open_order_ids(self) -> list[str]:
+        """Ordinary (non-algo) orders still resting on this symbol."""
+        return [o["id"] for o in self.client.fetch_open_orders(self.cfg.symbol)]
+
     def last_price(self) -> float:
         return float(self.client.fetch_ticker(self.cfg.symbol)["last"])
 

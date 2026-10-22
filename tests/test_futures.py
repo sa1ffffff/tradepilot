@@ -1,6 +1,8 @@
 """Futures sizing, short signals, long/short engine and the futures runner -- no network."""
 import dataclasses
 
+import ccxt
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -102,6 +104,10 @@ class FakeFutures:
         self.algos = []
         self.calls = []
         self.fail_protection = False
+        self.open_fail = None        # None | "before" | "after" | "resting": how an entry errors
+        self.close_fail = False
+        self.resting = []            # ordinary orders left on the book
+        self.orders_check_fails = False
 
     def fetch_closed_ohlcv(self, bars):
         return self.df
@@ -121,13 +127,24 @@ class FakeFutures:
     def open(self, d, contracts):
         self.calls.append(("open", d, contracts))
         px = float(self.df["close"].iloc[-1])
+        mode, self.open_fail = self.open_fail, None
+        if mode == "before":
+            raise ccxt.ExchangeNotAvailable("okx 50001 Service temporarily unavailable")
+        if mode == "resting":
+            self.resting = ["limit-1"]
+            raise ccxt.RequestTimeout("timed out while waiting for the fill")
         self.pos = {"dir": d, "contracts": contracts, "size": contracts * 0.01, "entry": px,
                     "liq": px * (1 - d * 0.19), "margin": 100.0}
+        if mode == "after":
+            raise ccxt.RequestTimeout("order went through, reply lost")
         return {"id": "o1", "status": "closed", "filled": contracts, "size": contracts * 0.01,
                 "average": px, "fee_quote": 0.1, "fee_base": 0.0, "maker_share": 1.0}
 
     def close(self, d, contracts, urgent=False):
         self.calls.append(("close", d, contracts))
+        if self.close_fail:
+            self.close_fail = False
+            raise ccxt.ExchangeNotAvailable("okx 50013 system busy")
         self.pos = None
         return {"id": "c1", "status": "closed", "filled": contracts, "average": 101.0,
                 "fee_quote": 0.1, "maker_share": 1.0}
@@ -148,6 +165,11 @@ class FakeFutures:
         self.calls.append(("move", stop))
         self.algos = [("sl", d, stop, tp)]
         return "a2"
+
+    def open_order_ids(self):
+        if self.orders_check_fails:
+            raise ccxt.NetworkError("still down")
+        return list(self.resting)
 
     def last_price(self):
         return float(self.df["close"].iloc[-1])
@@ -343,3 +365,75 @@ def test_runner_closes_if_trail_is_already_past_price(fcfg):
     fr.step(fcfg, SPEC, ex, risk, state, log)
     assert state.slot(fcfg.symbol)["position"] is None
     assert any(m == "trail_hit" for m, _ in log.events)
+
+
+# --- entries that error part-way ------------------------------------------------
+
+def _opens(ex):
+    return [c for c in ex.calls if c[0] == "open"]
+
+
+def _step_raising(fcfg, ex, risk, state, log):
+    with pytest.raises(ccxt.BaseError):
+        fr.step(fcfg, SPEC, ex, risk, state, log)
+
+
+def test_entry_that_never_reached_okx_is_retried(fcfg):
+    ex = FakeFutures([100.0] * 80 + [70.0])
+    ex.open_fail = "before"
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    _step_raising(fcfg, ex, risk, state, log)
+    assert state.slot(fcfg.symbol)["entry_retry"] and state.slot(fcfg.symbol)["position"] is None
+    fr.step(fcfg, SPEC, ex, risk, state, log)                 # next poll: retries
+    assert state.slot(fcfg.symbol)["position"]["side"] == "short"
+    assert len(_opens(ex)) == 2 and any(m == "entry_retry" for m, _ in log.events)
+
+
+def test_entry_that_reached_okx_is_not_repeated(fcfg):
+    ex = FakeFutures([100.0] * 80 + [70.0])
+    ex.open_fail = "after"                                    # filled, but the reply was lost
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    _step_raising(fcfg, ex, risk, state, log)
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    assert len(_opens(ex)) == 1                               # no second entry
+    assert "entry_retry" not in state.slot(fcfg.symbol)
+
+
+def test_resting_order_blocks_retry_until_it_is_gone(fcfg):
+    ex = FakeFutures([100.0] * 80 + [70.0])
+    ex.open_fail = "resting"
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    _step_raising(fcfg, ex, risk, state, log)
+    fr.step(fcfg, SPEC, ex, risk, state, log)                 # order still resting: wait
+    assert len(_opens(ex)) == 1 and state.slot(fcfg.symbol)["entry_retry"]
+    ex.resting = []                                           # it was cancelled / expired
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    assert len(_opens(ex)) == 2 and state.slot(fcfg.symbol)["position"] is not None
+
+
+def test_retry_check_waits_while_okx_is_still_down(fcfg):
+    ex = FakeFutures([100.0] * 80 + [70.0])
+    ex.open_fail = "before"
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    _step_raising(fcfg, ex, risk, state, log)
+    ex.orders_check_fails = True
+    _step_raising(fcfg, ex, risk, state, log)                 # can't check: nothing decided
+    assert state.slot(fcfg.symbol)["entry_retry"] and len(_opens(ex)) == 1
+    ex.orders_check_fails = False
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    assert len(_opens(ex)) == 2
+
+
+def test_failed_exit_is_retried(fcfg):
+    ex = FakeFutures([100.0] * 80 + [130.0])                  # long entry
+    risk, state, log = RiskManager(fcfg), new_state(fcfg), Log()
+    fr.step(fcfg, SPEC, ex, risk, state, log)
+    assert state.slot(fcfg.symbol)["position"]["side"] == "long"
+    ex.df = frame([100.0] * 80 + [130.0, 131.0, 60.0])         # exit (and reverse) signal
+    ex.close_fail = True
+    _step_raising(fcfg, ex, risk, state, log)
+    assert state.slot(fcfg.symbol)["position"]["side"] == "long"   # still open
+    fr.step(fcfg, SPEC, ex, risk, state, log)                 # retried
+    long_closes = [c for c in ex.calls if c[0] == "close" and c[1] == 1]
+    assert len(long_closes) == 2                              # failed attempt + the retry
+    assert any(m == "exit_filled" and f["side"] == "long" for m, f in log.events)

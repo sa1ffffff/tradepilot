@@ -239,6 +239,20 @@ def step(cfg: Config, spec: StrategySpec, ex, risk: RiskManager, store: Store, l
     pos = slot["position"]
     live = ex.position()
 
+    # 0. an earlier entry attempt errored part-way. If OKX shows no position and no
+    #    resting order, nothing went through: forget the signal so this poll can retry
+    #    it. If something did reach OKX, don't retry (no duplicate); sync handles it.
+    pending = slot.get("entry_retry")
+    if pending and pos is None:
+        if live is not None:
+            slot.pop("entry_retry")
+            store.save(risk)
+        elif not ex.open_order_ids():
+            risk.forget(pending)
+            slot.pop("entry_retry")
+            store.save(risk)
+            log.info("entry_retry", {"symbol": cfg.symbol, "signal": pending})
+
     # 1. sync with the exchange
     if pos is not None and live is None:
         record_close(ex, risk, store, slot, log, "exchange stop/tp")
@@ -280,15 +294,28 @@ def step(cfg: Config, spec: StrategySpec, ex, risk: RiskManager, store: Store, l
         d = pos["dir"]
         if (d > 0 and (bar["exit"] or short_in)) or (d < 0 and (bar["short_exit"] or long_in)):
             risk.remember(key)
-            close_position(ex, risk, store, slot, log, "signal")
+            try:
+                close_position(ex, risk, store, slot, log, "signal")
+            except Exception:
+                # exits are reduce-only, so retrying can never double a position
+                risk.forget(key)
+                store.save(risk)
+                raise
             if not (long_in or short_in):
                 return
         else:
             return
     if long_in or short_in:
+        # remembered before ordering, so a lost reply can't cause a second entry;
+        # if the attempt errors, step 0 of the next poll decides whether to retry
         risk.remember(key)
         store.save(risk)
-        open_position(cfg, spec, ex, risk, store, slot, log, 1 if long_in else -1, bar)
+        try:
+            open_position(cfg, spec, ex, risk, store, slot, log, 1 if long_in else -1, bar)
+        except Exception:
+            slot["entry_retry"] = key
+            store.save(risk)
+            raise
 
 
 def main() -> None:

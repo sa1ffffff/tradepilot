@@ -79,6 +79,9 @@ bots start.
    signal), win rate and average R in the same ballpark.
 4. Write the lessons file and decide what goes into the next round.
 
-Known issue (found by `futures_session_report.py` on 2026-10-22): if OKX errors while the
-futures bot is placing an entry, that signal is marked as handled and not retried, so the
-trade is lost (ADA short, 4h bar 2026-10-22 12:00). Fix before starting the test.
+Fixed on 2026-10-23 (found by `futures_session_report.py`): an OKX error during a futures
+entry used to lose the signal (ADA short, 4h bar 2026-10-22 12:00). Now the next poll checks
+OKX: no position and no resting order means nothing went through, so the signal is retried
+(logged as `entry_retry`); if something did reach OKX it isn't repeated. Failed exits are
+retried too. Spot still has the old behaviour (a lost entry isn't retried); it trades about
+twice a month, so watch `session_report.py` for missed spot entries.

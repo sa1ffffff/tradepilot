@@ -216,6 +216,10 @@ python -m bot.futures_runner              # trade on the demo account
 - **The stop-loss lives on OKX** (an algo order closing the whole position), so it works
   even if the bot or PC is down. A position without its stop is closed immediately;
   a missing stop is re-placed on the next poll.
+- **OKX errors mid-order:** a signal is marked as handled before the order goes out, so a
+  lost reply can't cause a second entry. If the entry errors, the next poll checks OKX: no
+  position and no resting order means nothing went through, and the signal is retried
+  (`entry_retry` in the log). A failed exit is retried straight away (exits are reduce-only).
 - **Trailing stop:** once a trade is `FUT_TRAIL_START_R`× its risk in profit, the OKX
   stop follows the best price at `FUT_TRAIL_MULT`× the strategy's stop distance and only
   ever tightens (the new stop is placed before the old one is cancelled). Defaults 2R / 2×
