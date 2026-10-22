@@ -1,0 +1,19 @@
+{
+  "period": [
+    "2026-10-20T20:25:04.357678+00:00",
+    "2026-10-22T17:55:31.869114+00:00"
+  ],
+  "trades": 13,
+  "net_pnl": 117.78,
+  "maker_fill_rate": {
+    "spot": 0.537,
+    "spot_orders": 15,
+    "futures": 1.0,
+    "futures_orders": 6
+  },
+  "entry_slippage_bps": {
+    "mean": -2.3,
+    "worst": 4.13,
+    "n": 13
+  }
+}

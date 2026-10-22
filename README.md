@@ -133,6 +133,18 @@ up. One or two days is far too few trades to show profitability by itself;
 the matching proves the backtest is a faithful model of the bot, and the
 research results are the evidence on profit.
 
+### Full run report
+
+```bash
+python demo_report.py
+```
+
+Writes `reports/demo_run_<date>.md` covering both bots: every trade, P&L per market,
+exit reasons, the real limit-order fill share and entry slippage, and every error type.
+It also writes `reports/measured_costs.json`; put its maker fill share into
+`MAKER_FILL_RATE` in `.env` (or pass `--maker-fill-rate` to `research.py`) so the next
+research round uses what actually happened instead of assumptions.
+
 ### Dashboard
 
 Double-click `start_dashboard.bat` (or run `python dashboard.py`) and it
