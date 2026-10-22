@@ -104,6 +104,11 @@
 </div>
 
 <script>
+// Opened as a file (double-clicked dashboard.html): the data only comes from
+// dashboard.py, so go to the address it serves instead.
+const SERVER = "http://127.0.0.1:8765/";
+if (location.protocol === "file:") location.replace(SERVER);
+
 const $ = (id) => document.getElementById(id);
 const usd = (v, sign = true) => v == null ? "–" :
   (sign && v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -196,7 +201,8 @@ async function update() {
     lastUpdate = Date.now(); tick();
   } catch (e) {
     $("banner").style.display = "block";
-    $("banner").textContent = "Update failed: " + e.message + ". Is dashboard.py still running?";
+    $("banner").textContent = "Update failed: " + e.message +
+      ". Is the dashboard still running? Double-click start_dashboard.bat to start it.";
   } finally {
     btn.disabled = false; btn.textContent = "Update";
   }
