@@ -2,7 +2,8 @@
 futures runner so research and trading size positions identically.
 
 Size comes from risk, leverage from volatility:
-- size: lose fut_risk_fraction of equity if the stop is hit;
+- size: lose fut_risk_fraction of equity if the stop is hit (or, if a strategy
+  file sets fut_notional_usd, a fixed position value instead);
 - leverage: the highest whole number (up to fut_max_leverage) that keeps the
   liquidation price at least fut_liq_buffer times further away than the stop,
   so the stop always triggers first -- wide stops get low leverage;
@@ -53,7 +54,10 @@ def plan(equity: float, price: float, stop_distance: float, direction: int, cfg,
     if equity <= 0 or price <= 0 or not stop_distance > 0 or stop_distance >= price:
         return None
     lev = leverage_for(stop_distance / price, cfg)
-    size = equity * cfg.fut_risk_fraction / stop_distance
+    if getattr(cfg, "fut_notional_usd", 0) > 0:  # fixed position size (a strategy-file option)
+        size = cfg.fut_notional_usd / price
+    else:
+        size = equity * cfg.fut_risk_fraction / stop_distance
     margin_room = equity * cfg.fut_max_margin_fraction - margin_in_use
     if margin_room <= 0:
         return None

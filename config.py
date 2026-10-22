@@ -77,6 +77,9 @@ class Config:
     # give-backs. FUT_TRAIL_START_R=0 turns it off. Strategy files can override both
     # ("trail_start_r", "trail_mult").
     fut_trail_start_r: float = _f("FUT_TRAIL_START_R", 2.0)
+    # Fixed position value in USDT instead of risk-based sizing. Strategy-file only
+    # ("fut_notional_usd"); 0 = size by FUT_RISK_FRACTION.
+    fut_notional_usd: float = 0.0
     fut_trail_mult: float = _f("FUT_TRAIL_MULT", 2.0)
 
     kill_file: str = "KILL"

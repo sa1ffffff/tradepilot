@@ -86,6 +86,7 @@ def load_futures_strategy(cfg: Config, path: str | None = None) -> tuple[Config,
                               max_cost_per_r=d.get("max_cost_per_r", cfg.max_cost_per_r),
                               fut_trail_start_r=d.get("trail_start_r", cfg.fut_trail_start_r),
                               fut_trail_mult=d.get("trail_mult", cfg.fut_trail_mult),
+                              fut_notional_usd=float(d.get("fut_notional_usd", 0.0)),
                               # a test slot can risk less than the researched ones
                               fut_risk_fraction=d.get("fut_risk_fraction", cfg.fut_risk_fraction))
     if ":" not in cfg.symbol:

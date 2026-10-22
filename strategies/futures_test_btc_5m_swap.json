@@ -1,14 +1,17 @@
 {
-  "purpose": "Demo test slot only: trades about 8 times a day (long and short) so the futures pipeline gets exercised often. It has no edge: on the 30 days to 2026-10-21 it lost 59% at 2% risk per trade, so it risks 0.3% per trade here. Remove it from FUT_STRATEGY_FILE when the test phase ends.",
+  "purpose": "Demo test slot only: trades about 8 times a day (long and short) so the futures pipeline gets exercised often. It has no edge: over 90 days to 2026-10-22 it averaged -0.64R per trade (712 trades). At the user's request it trades a fixed ~$10,000 position (5x, ~$2,000 margin), which simulated at about -$53 a day (worst day -$238). Remove it from FUT_STRATEGY_FILE when the test phase ends.",
   "symbol": "BTC/USDT:USDT",
   "timeframe": "5m",
   "name": "ema_cross",
-  "params": {"fast": 15, "slow": 40},
+  "params": {
+    "fast": 15,
+    "slow": 40
+  },
   "stop_atr": 2.0,
   "tp_r": null,
   "shorts": true,
   "max_cost_per_r": 0,
-  "fut_risk_fraction": 0.003,
+  "fut_notional_usd": 10000,
   "trail_start_r": 1.0,
   "trail_mult": 1.0
 }

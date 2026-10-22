@@ -269,11 +269,25 @@ def test_two_strategies_on_one_symbol_are_refused(tmp_path):
         fr.load_futures_strategies(cfg)
 
 
-def test_strategy_file_can_lower_risk_for_a_test_slot():
+def test_strategy_file_sets_the_test_slot_overrides():
     from bot.futures_runner import load_futures_strategy
     cfg, spec = load_futures_strategy(futures_cfg(Config()), "strategies/futures_test_btc_5m_swap.json")
-    assert (cfg.symbol, cfg.timeframe, cfg.fut_risk_fraction) == ("BTC/USDT:USDT", "5m", 0.003)
+    assert (cfg.symbol, cfg.timeframe, cfg.fut_notional_usd) == ("BTC/USDT:USDT", "5m", 10000)
+    assert (cfg.fut_trail_start_r, cfg.fut_trail_mult) == (1.0, 1.0)
     assert spec.shorts
+
+
+def test_fixed_notional_sizing_and_margin_cap():
+    cfg = dataclasses.replace(futures_cfg(Config()), fut_notional_usd=10000, fut_max_leverage=5,
+                              fut_max_margin_fraction=0.7)
+    p = plan(5000, 80000, 400, 1, cfg)                 # 0.5% stop -> 5x
+    assert p.leverage == 5 and abs(p.notional - 10000) < 1e-6 and abs(p.margin - 2000) < 1e-6
+    # only 1,000 of margin room left -> position shrinks to fit (5,000 notional)
+    p = plan(5000, 80000, 400, 1, cfg, margin_in_use=2500)
+    assert abs(p.margin - 1000) < 1e-6
+    # other slots keep risk-based sizing
+    q = plan(5000, 80000, 2000, 1, dataclasses.replace(cfg, fut_notional_usd=0))
+    assert abs(q.size * 2000 - 5000 * cfg.fut_risk_fraction) < 1e-6
 
 
 # --- trailing stop -------------------------------------------------------------
