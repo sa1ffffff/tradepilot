@@ -133,6 +133,18 @@ up. One or two days is far too few trades to show profitability by itself;
 the matching proves the backtest is a faithful model of the bot, and the
 research results are the evidence on profit.
 
+For futures, the same check strategy by strategy:
+
+```bash
+python futures_session_report.py
+```
+
+It replays every strategy in `FUT_STRATEGY_FILE` (or `--files ...`) over the hours the bot
+ran, on the demo candles, and matches each live trade to the backtest by signal bar and
+side. A backtest entry the bot didn't take is marked "explained" when the log shows the
+strategy wasn't running then, or that the bot skipped it on purpose; anything else is a
+mismatch to investigate. Writes `reports/futures_session_<date>.md`.
+
 ### Full run report
 
 ```bash

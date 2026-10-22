@@ -54,7 +54,9 @@ months is not, by itself, evidence of a problem; a 1-in-4 chance is common.
 
 1. Dashboard (`start_dashboard.bat`): both bots running, no red banner.
 2. `python demo_report.py`: trades, P&L, limit-fill share, errors.
-3. `python session_report.py`: spot trades vs backtest. Expect every entry to match.
+3. `python session_report.py` (spot) and `python futures_session_report.py` (futures): live
+   trades vs backtest, trade by trade. Expect every entry to match; signals the bot missed
+   because it wasn't running or skipped on purpose are listed as "explained".
 4. Note anything unexpected in a new `reports/lessons_<date>.md`.
 
 The 2-hourly health check is paused: resume it under **Scheduled** in the Claude app when the
@@ -77,6 +79,6 @@ bots start.
    signal), win rate and average R in the same ballpark.
 4. Write the lessons file and decide what goes into the next round.
 
-Known gap: there's no futures equivalent of `session_report.py` yet (futures trades are in
-`demo_report.py`, but not replayed against the backtest trade by trade). Worth building
-before the end of the test.
+Known issue (found by `futures_session_report.py` on 2026-10-22): if OKX errors while the
+futures bot is placing an entry, that signal is marked as handled and not retried, so the
+trade is lost (ADA short, 4h bar 2026-10-22 12:00). Fix before starting the test.
