@@ -461,6 +461,7 @@ def plain(text):
     text = re.sub(r"\bStop ([\d.]+)× ATR\b", r"Stop-loss \1× the average candle size away", text)
     text = re.sub(r"\btarget ([\d.]+)R\b", r"take-profit at \1× the risk", text)
     text = re.sub(r"\bno target\b", "no fixed take-profit", text)
+    text = re.sub(r"\b([\d.]+) ATR\b", r"\1× the average candle size", text)
     return re.sub(r"\bEMA (\d+)\b", r"the \1-candle average", text)
 
 
