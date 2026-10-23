@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BaselineSeries, ColorType, createChart, type UTCTimestamp } from 'lightweight-charts';
 import type { ConsoleData, Route } from '../lib/store';
 import { coin, reasonLabel, r as fmtR, strategyName, time, tone, until, usd } from '../lib/format';
@@ -43,6 +43,14 @@ function EquityCurve({ points }: { points: [string, number][] }) {
 
 export function Overview({ data, go, now }: { data: ConsoleData; go: (r: Route) => void; now: number }) {
   const { status: s, trades, overview } = data;
+  // a dismissed health note stays hidden until the next check writes a new one
+  const [hiddenNote, setHiddenNote] = useState(() => {
+    try { return localStorage.getItem('tp-health-dismissed') || ''; } catch { return ''; }
+  });
+  const hideNote = (title: string) => {
+    setHiddenNote(title);
+    try { localStorage.setItem('tp-health-dismissed', title); } catch { /* private mode */ }
+  };
   if (!s) {
     return (
       <div className="grid">
@@ -68,8 +76,9 @@ export function Overview({ data, go, now }: { data: ConsoleData; go: (r: Route) 
       {s.target.reached && (
         <div className="banner ok"><Icon name="flag" fill /><div className="grow"><b>Daily target reached.</b> {usd(s.target.realized_today, true)} today; no new trades until 00:00 UTC.</div></div>
       )}
-      {s.health.status === 'ATTENTION' && (
-        <div className="banner bad"><Icon name="error" /><div className="grow"><b>Health check: needs attention.</b> {s.health.lines[0]}</div></div>
+      {s.health.status === 'ATTENTION' && s.health.title !== hiddenNote && (
+        <div className="banner bad"><Icon name="error" /><div className="grow"><b>Health check: needs attention.</b> {s.health.lines[0]}</div>
+          <div className="actions"><Btn kind="text" small icon="close" iconOnly title="Dismiss until the next health check" aria-label="Dismiss" onClick={() => hideNote(s.health.title)} /></div></div>
       )}
 
       <BotHero status={s} overview={overview} refresh={data.refresh} now={now} go={go} />
