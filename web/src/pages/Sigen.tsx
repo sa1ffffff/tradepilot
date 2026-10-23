@@ -10,6 +10,8 @@ import '../sigen.css';
 
 const visible = () => document.visibilityState === 'visible';
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** "3 years" / "11 months" of history the strategy was tested on. */
+const span = (days?: number) => (!days ? '3 years' : days >= 700 ? `${Math.round(days / 365)} years` : days >= 330 ? '1 year' : `${Math.round(days / 30)} months`);
 const pctFrom = (level: number, from: number) => {
   const v = (level / from - 1) * 100;
   return `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}%`;
@@ -145,7 +147,7 @@ function Accuracy({ a }: { a: Signal['accuracy'] }) {
     <div className="sg-acc">
       <div className="k">Accuracy</div>
       <div className="v num">{a.win_rate_pct.toFixed(0)}%<span className="of">wins</span></div>
-      <div className="t-small muted num">{a.trades} tested trades · avg win {a.avg_win_r.toFixed(1)}R, loss {a.avg_loss_r.toFixed(1)}R</div>
+      <div className="t-small muted num">{a.trades} tested trades{a.history_days && a.history_days < 700 ? ` over only ${span(a.history_days)}` : ''} · avg win {a.avg_win_r.toFixed(1)}R, loss {a.avg_loss_r.toFixed(1)}R</div>
     </div>
   );
 }
@@ -339,7 +341,8 @@ function SignalSheet({ s, onClose, now }: { s: Signal | null; onClose: () => voi
           </section>
 
           <section>
-            <h4 className="t-title" style={{ marginBottom: 8 }}>Track record (3 years, out of sample)</h4>
+            <h4 className="t-title" style={{ marginBottom: 8 }}>Track record ({span(t.accuracy.history_days)} of history, out of sample)</h4>
+            {(t.accuracy.history_days ?? 1095) < 700 && <div className="banner warn" style={{ marginBottom: 10 }}><Icon name="history" /><div className="grow">{t.coin} has only {span(t.accuracy.history_days)} of price history on OKX, so this record covers fewer market conditions than the 3 years used for older coins.</div></div>}
             <div className="facts three num panel" style={{ overflow: 'hidden' }}>
               <div className="fact"><div className="k">Win rate</div><div className="v">{t.accuracy.win_rate_pct.toFixed(1)}%</div><div className="t-small faint">{t.accuracy.expected_win_rate_pct.toFixed(1)}% after adjusting for selection</div></div>
               <div className="fact"><div className="k">Tested trades</div><div className="v">{t.accuracy.trades}</div></div>

@@ -288,7 +288,7 @@ export interface Signal {
   confidence: { score: number; label: 'High' | 'Medium' | 'Low';
     parts: { edge_certainty: number; folds_positive: number; ai_setup: number; ai_weight: number; unusual_market: boolean } };
   accuracy: { win_rate_pct: number; expected_win_rate_pct: number; trades: number; profit_factor: number; avg_win_r: number;
-    avg_loss_r: number; folds_positive: number; return_pct: number; max_drawdown_pct: number };
+    avg_loss_r: number; folds_positive: number; return_pct: number; max_drawdown_pct: number; history_days?: number };
   ai: { p_win: number | null; di: number | null; unusual: boolean; base_rate: number; holdout_auc: number;
     drivers?: { feature: string; effect: 'for' | 'against'; weight: number }[] };
 }

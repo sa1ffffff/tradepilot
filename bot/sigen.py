@@ -521,6 +521,7 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
                  "holdout_auc": model.d["holdout"]["auc"]}
     out["confidence"] = confidence(chosen, ai, model.d)
     out["accuracy"] = accuracy(chosen, model.d)
+    out["accuracy"]["history_days"] = int(res.get("bars", 0) // 6)
 
     # the instruction, in words
     st, dn = out["state"], (1 if out["direction"] != "short" else -1)
