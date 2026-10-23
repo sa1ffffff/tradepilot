@@ -13,3 +13,6 @@ data/cache/
 state_futures.json
 state_futures.json.tmp
 *.lock
+control/
+web/node_modules/
+web/dist/

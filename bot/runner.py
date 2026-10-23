@@ -22,15 +22,27 @@ import time
 from datetime import datetime, timezone
 
 from config import Config
+from bot import control
 from bot.exchange import OkxExchange
 from bot.lock import acquire as acquire_lock
 from bot.log import get_logger
-from bot.risk import RiskManager
+from bot.risk import Decision, RiskManager
 from bot.strategies import StrategySpec, default_spec, signals, warmup_bars
 
 
 def kill_engaged(cfg: Config) -> bool:
     return os.path.exists(cfg.kill_file)
+
+
+def control_root(cfg: Config) -> str:
+    """control/ sits next to the KILL file (the project folder)."""
+    return os.path.dirname(cfg.kill_file) or "."
+
+
+def target_hit(cfg: Config, risk: RiskManager, other_state_file: str) -> float | None:
+    """The daily profit target, if both bots' realized P&L today has reached it."""
+    return control.target_reached(control.combined_pnl_today(risk.realized_pnl_today, other_state_file),
+                                  control_root(cfg))
 
 
 def load_strategy(cfg: Config) -> tuple[Config, StrategySpec]:
@@ -89,6 +101,18 @@ def step(cfg: Config, spec: StrategySpec, ex: OkxExchange, risk: RiskManager, st
     risk.roll_day(datetime.now(timezone.utc).date())
     pos = state["position"]
 
+    root = control_root(cfg)
+    # a close requested from the dashboard
+    if control.close_requested("spot", cfg.symbol, root):
+        control.clear_close("spot", cfg.symbol, root)
+        if pos is not None:
+            close_position(cfg, ex, risk, state, log, "manual", ex.last_price())
+            return
+    # daily profit target reached, and the owner asked for positions to be closed too
+    if pos is not None and control.target(root)["close_open"] and target_hit(cfg, risk, cfg.fut_state_file):
+        close_position(cfg, ex, risk, state, log, "daily target", ex.last_price())
+        return
+
     # protective stop / take-profit: checked every poll, not just on bar close
     if pos is not None:
         last = ex.last_price()
@@ -119,7 +143,10 @@ def step(cfg: Config, spec: StrategySpec, ex: OkxExchange, risk: RiskManager, st
         save_state(cfg.state_file, state)
 
         price, stop_distance = float(bar["close"]), spec.stop_atr * float(bar["atr"])
+        hit = target_hit(cfg, risk, cfg.fut_state_file)
         decision = risk.evaluate_entry(price, stop_distance, ex.equity_quote(), kill_engaged(cfg))
+        if hit is not None:
+            decision = Decision(False, f"daily profit target reached ({hit:.2f})")
         if not decision.allowed:
             log.info("entry_skipped", {"reason": decision.reason, "bar": bar_time, "price": price})
             return
@@ -162,13 +189,30 @@ def main() -> None:
     if not cfg.demo:
         log.warning("LIVE MODE -- real money", {})
 
+    root = control_root(cfg)
+    control.clear_stop("spot", root)  # a stale request from before this start
+    equity, equity_at = None, 0.0
     try:
         while True:
             try:
                 step(cfg, spec, ex, risk, state, log)
             except Exception:  # keep the loop alive; one bad poll shouldn't kill the bot
                 log.exception("error", {})
-            time.sleep(cfg.poll_seconds)
+            for req in control.pending_closes(root):  # requests for other symbols: nothing to close
+                if req["bot"] == "spot" and req["symbol"] != cfg.symbol:
+                    control.clear_close("spot", req["symbol"], root)
+            if time.monotonic() - equity_at > 300:
+                try:
+                    equity, equity_at = ex.equity_quote(), time.monotonic()
+                except Exception:
+                    pass
+            control.heartbeat("spot", {"equity": equity, "symbol": cfg.symbol,
+                                       "timeframe": cfg.timeframe, "poll_seconds": cfg.poll_seconds}, root)
+            if control.stop_requested("spot", root):
+                control.clear_stop("spot", root)
+                log.info("stopped", {"by": "dashboard"})
+                return
+            control.wait(cfg.poll_seconds, "spot", root)
     except KeyboardInterrupt:
         log.info("stopped", {})
 

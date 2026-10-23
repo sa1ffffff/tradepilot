@@ -37,12 +37,13 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from config import Config
+from bot import control
 from bot.costs import too_costly
 from bot.futures import futures_cfg, plan, trail_params, trail_stop
 from bot.lock import acquire as acquire_lock
 from bot.log import get_logger
 from bot.risk import RiskManager
-from bot.runner import kill_engaged
+from bot.runner import control_root, kill_engaged, target_hit
 from bot.strategies import StrategySpec, signals_ls, warmup_bars
 
 
@@ -104,6 +105,25 @@ def load_futures_strategies(cfg: Config) -> list[tuple[Config, StrategySpec]]:
     return out
 
 
+SPOT_STATE_FILE = Config.state_file  # futures_cfg points cfg.state_file at the futures file
+
+
+def handle_requests(cfg, ex, risk, store, log) -> bool:
+    """Dashboard close request, or the daily target with close_open. True if it closed."""
+    root = control_root(cfg)
+    slot = store.slot(cfg.symbol)
+    reason = None
+    if control.close_requested("futures", cfg.symbol, root):
+        control.clear_close("futures", cfg.symbol, root)
+        reason = "manual"
+    elif control.target(root)["close_open"] and target_hit(cfg, risk, SPOT_STATE_FILE) is not None:
+        reason = "daily target"
+    if reason and slot.get("position") is not None:
+        close_position(ex, risk, store, slot, log, reason)
+        return True
+    return False
+
+
 def record_close(ex, risk, store, slot, log, reason: str, fill: dict | None = None) -> None:
     pos = slot["position"]
     res = ex.closed_pnl(pos["opened_ms"])
@@ -140,6 +160,8 @@ def open_position(cfg, spec, ex, risk, store, slot, log, direction: int, bar) ->
         reason = "kill switch engaged"
     elif risk.daily_loss_hit():
         reason = f"daily loss limit reached ({risk.realized_pnl_today:.2f})"
+    elif (hit := target_hit(cfg, risk, SPOT_STATE_FILE)) is not None:
+        reason = f"daily profit target reached ({hit:.2f})"
     elif not dist > 0 or too_costly(cfg, price, dist):
         reason = "stop too tight for trading costs"
     p = None
@@ -346,16 +368,38 @@ def main() -> None:
                          "max_margin": fcfg.fut_max_margin_fraction,
                          "strategies": [f"{c.symbol} {c.timeframe} {s.label()}" for c, s, _ in slots],
                          "positions": {k: v.get("position") for k, v in store.data["slots"].items()}})
+    root = control_root(fcfg)
+    control.clear_stop("futures", root)  # a stale request from before this start
+    equity, equity_at = None, 0.0
     try:
         while True:
             for cfg, spec, ex in slots:
                 try:
+                    if handle_requests(cfg, ex, risk, store, log):
+                        continue
                     step(cfg, spec, ex, risk, store, log)
                 except ccxt.NetworkError as e:  # internet/OKX blip: one line, retry next poll
                     log.warning("network_error", {"symbol": cfg.symbol, "error": str(e)[:200]})
                 except Exception:
                     log.exception("error", {"symbol": cfg.symbol})
-            time.sleep(fcfg.poll_seconds)
+            ours = {c.symbol for c, _, _ in slots}
+            for req in control.pending_closes(root):  # a symbol no slot trades: nothing to close
+                if req["bot"] == "futures" and req["symbol"] not in ours:
+                    control.clear_close("futures", req["symbol"], root)
+            if time.monotonic() - equity_at > 300:
+                try:
+                    equity, equity_at = slots[0][2].equity_quote(), time.monotonic()
+                except Exception:
+                    pass
+            control.heartbeat("futures", {"equity": equity, "poll_seconds": fcfg.poll_seconds,
+                                          "risk_per_trade": fcfg.fut_risk_fraction}, root)
+            if control.stop_requested("futures", root):
+                control.clear_stop("futures", root)
+                log.info("stopped", {"by": "dashboard",
+                                     "positions": {k: v.get("position")
+                                                   for k, v in store.data["slots"].items()}})
+                return
+            control.wait(fcfg.poll_seconds, "futures", root)
     except KeyboardInterrupt:
         log.info("stopped", {"positions": {k: v.get("position")
                                            for k, v in store.data["slots"].items()}})

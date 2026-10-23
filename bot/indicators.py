@@ -42,6 +42,11 @@ def bollinger(close: pd.Series, n: int = 20, k: float = 2.0) -> tuple[pd.Series,
 
 def supertrend_up(df: pd.DataFrame, n: int = 10, mult: float = 3.0) -> pd.Series:
     """True while Supertrend is in an uptrend (TradingView ta.supertrend)."""
+    return supertrend(df, n, mult)[0]
+
+
+def supertrend(df: pd.DataFrame, n: int = 10, mult: float = 3.0) -> tuple[pd.Series, pd.Series]:
+    """(uptrend flag, the Supertrend line: the lower band in an uptrend, the upper in a downtrend)."""
     hl2 = ((df["high"] + df["low"]) / 2).to_numpy()
     a = atr(df, n).to_numpy()
     close = df["close"].to_numpy()
@@ -57,7 +62,8 @@ def supertrend_up(df: pd.DataFrame, n: int = 10, mult: float = 3.0) -> pd.Series
             up[i] = close[i] >= lower[i]
         else:
             up[i] = close[i] > upper[i]
-    return pd.Series(up, index=df.index)
+    line = np.where(up, lower, upper)
+    return pd.Series(up, index=df.index), pd.Series(line, index=df.index)
 
 
 def crossed_above(a: pd.Series, b) -> pd.Series:

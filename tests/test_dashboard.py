@@ -1,21 +1,31 @@
-from datetime import datetime, timezone
-
 import dashboard
 from bot.lock import acquire, is_held
 
 
-def test_trades_and_summary():
+def test_trades_pair_entries_with_exits():
     events = [
-        {"ts": "2026-10-21T10:00:00+00:00", "msg": "started"},
-        {"ts": "2026-10-21T11:00:00+00:00", "msg": "exit_filled", "price": 101, "entry": 100, "pnl": 1.0, "reason": "signal"},
+        {"ts": "2026-10-21T10:00:00+00:00", "msg": "started", "symbol": "BTC/USDT", "timeframe": "4h",
+         "strategy": "chandelier_trend(trend=100,mult=2.5) stop=2.0ATR no tp"},
+        {"ts": "2026-10-21T10:01:00+00:00", "msg": "entry_filled", "bar": "2026-10-21T08:00:00+00:00",
+         "price": 100.0, "signal_close": 100.0, "stop": 95.0, "size": 2.0},
+        {"ts": "2026-10-21T11:00:00+00:00", "msg": "exit_filled", "price": 105, "entry": 100, "pnl": 9.8,
+         "reason": "signal"},
         {"ts": "2026-10-22T09:00:00+00:00", "msg": "exit_filled", "symbol": "BTC/USDT:USDT", "side": "short",
          "price": 99, "entry": 100, "pnl": -2.5, "reason": "stop"},
     ]
-    t = dashboard.trades(events, "Spot", "BTC/USDT")
-    assert [x["pnl"] for x in t] == [-2.5, 1.0]          # newest first
-    assert t[1]["symbol"] == "BTC/USDT" and t[0]["side"] == "short"
-    day = dashboard.summarise(t, datetime(2026, 10, 22, tzinfo=timezone.utc))
-    assert day == {"pnl": -2.5, "trades": 1, "wins": 0}
+    t = dashboard.trades(events, "spot", "BTC/USDT", "4h")
+    assert [x["pnl"] for x in t] == [9.8, -2.5]          # oldest first
+    assert t[0]["r"] == 0.98 and t[0]["timeframe"] == "4h" and t[0]["bar"].startswith("2026-10-21T08")
+    assert t[1]["entry_time"] is None and t[1]["side"] == "short"   # exit without a logged entry
+    assert dashboard.parse_label(t[0]["strategy"]).params == {"trend": 100, "mult": 2.5}
+
+
+def test_parse_label_round_trips_every_logged_form():
+    from bot.strategies import StrategySpec
+    for spec in (StrategySpec("supertrend", {"mult": 3.0, "trend": 200}, 2.0, 3.0, True),
+                 StrategySpec("donchian_breakout", {"entry_n": 20, "exit_n": 10, "trend": 0}, 3.0, None)):
+        assert dashboard.parse_label(spec.label()) == spec
+    assert dashboard.parse_label("nonsense") is None
 
 
 def test_health_note_reads_last_section(tmp_path):
