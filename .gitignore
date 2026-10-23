@@ -16,3 +16,4 @@ state_futures.json.tmp
 control/
 web/node_modules/
 web/dist/
+.impeccable/review/

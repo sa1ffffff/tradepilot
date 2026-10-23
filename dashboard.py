@@ -436,10 +436,12 @@ def analysis(bot: str, symbol: str, at: str | None = None, trade_id: str | None 
                       trail_start_r=(slot or {}).get("trail_start_r", 2.0))
         res["position"] = pos
     res.update({"bot": bot, "symbol": symbol, "timeframe": tf, "label": spec.label()})
+    # live fills on this chart: same market and timeframe (old test-slot trades ran on 5m)
+    mine = [trade] if trade else [t for t in all_trades() if t["symbol"] == symbol and t["timeframe"] == tf]
     res["fills"] = [{"time": t["entry_time"], "kind": "entry", "side": t["side"], "price": t["entry"]}
-                    for t in all_trades() if t["symbol"] == symbol and t["entry_time"]] + \
+                    for t in mine if t["entry_time"]] + \
                    [{"time": t["exit_time"], "kind": "exit", "side": t["side"], "price": t["exit"],
-                     "reason": t["reason"]} for t in all_trades() if t["symbol"] == symbol]
+                     "reason": t["reason"]} for t in mine]
     return res
 
 

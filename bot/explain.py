@@ -66,7 +66,7 @@ def _x_supertrend(sd: Side, p: dict):
     up, line = ind.supertrend(sd.d, 10, p["mult"])
     now, prev, lvl = bool(up.iloc[-1]), bool(up.iloc[-2]), sd.px(_last(line))
     flip = now and not prev
-    checks = [{"label": "Fresh Supertrend flip", "ok": flip, "level": lvl,
+    checks = [{"label": "Fresh Supertrend flip", "ok": flip, **({} if now else {"level": lvl}),
                "detail": ("Supertrend flipped on this bar" if flip else
                           f"Supertrend already {'up' if sd.dir > 0 else 'down'}; entries only on a fresh flip"
                           if now else f"Supertrend is against this side; line at {fmt(lvl)} ({sd.dist(lvl)})")}]
@@ -198,7 +198,7 @@ def _x_chandelier(sd: Side, p: dict):
     else:
         detail = f"Close is {sd.below} EMA {p['trend']} {fmt(lvl)} ({sd.dist(lvl)})"
     ch = sd.px(_last(ind.chandelier_long(sd.d, 22, p["mult"])))
-    checks = [{"label": "Trend reclaim", "ok": crossed, "level": lvl, "detail": detail},
+    checks = [{"label": "Trend reclaim", "ok": crossed, **({"level": lvl} if c <= _last(t) else {}), "detail": detail},
               {"label": "Trend strength", "ok": adx > 20, "detail": f"ADX {adx:.1f} (needs > 20)"}]
     trig = "conditions met on this bar" if crossed else (
         f"a close {sd.above} EMA {p['trend']} {fmt(lvl)} ({sd.dist(lvl)})" if c <= _last(t)
@@ -301,9 +301,17 @@ def analyse(df: pd.DataFrame, spec: StrategySpec, timeframe: str, position: dict
         checks, trigger, exit_text = EXPLAINERS[spec.name](sd, spec.params)
         fired = bool(last["entry"] if direction > 0 else last["short_entry"])
         blocked = [c["label"].lower() for c in checks if not c["ok"]]
+        # unmet price conditions all clear at once beyond the furthest of them
+        prices = [(c["level"], c["label"].lower()) for c in checks if not c["ok"] and "level" in c]
+        level = None
+        if prices:
+            level, _ = (max if direction > 0 else min)(prices)
+            if len(prices) > 1:
+                trigger = (f"a close {sd.above} {fmt(level)} ({sd.dist(level)}), "
+                           f"which clears the {' and the '.join(n for _, n in prices)}")
         if trigger.startswith("conditions met") and not fired:
             trigger = "the trigger fired, but the " + " and ".join(blocked or ["warm-up"]) + " blocked it"
-        sides[key] = {"checks": checks, "ready": fired, "trigger": trigger, "exit": exit_text,
+        sides[key] = {"checks": checks, "ready": fired, "trigger": trigger, "exit": exit_text, "trigger_level": level,
                       "met": sum(c["ok"] for c in checks), "total": len(checks)}
 
     close = float(last["close"])
@@ -323,9 +331,9 @@ def analyse(df: pd.DataFrame, spec: StrategySpec, timeframe: str, position: dict
         headline = f"Entry signal: every {which} condition held on the {t:%H:%M} bar."
         mood = "signal"
     else:
-        parts = [f"{k}: " + (s["trigger"] if s["trigger"].startswith("the trigger") else f"waiting for {s['trigger']}")
-                 for k, s in sides.items()]
-        headline = "Flat. " + "; ".join(p[0].upper() + p[1:] for p in parts) + "."
+        parts = [f"{k.capitalize()}: {s['trigger']}" if s["trigger"].startswith("the trigger")
+                 else f"{k.capitalize()} needs {s['trigger']}" for k, s in sides.items()]
+        headline = ". ".join(parts) + "."
         mood = "waiting"
 
     lines, panes = overlays(df, spec)

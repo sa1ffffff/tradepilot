@@ -44,3 +44,20 @@ def test_is_held_reflects_a_running_bot(tmp_path):
     finally:
         held.close()
     assert not is_held(state)
+
+
+def test_lan_requests_need_the_token_and_local_ones_dont():
+    class Req:
+        token = "s3cret"
+        def __init__(self, ip, headers=None):
+            self.client_address = (ip, 1)
+            self.headers = headers or {}
+        def _local(self):
+            return dashboard.Handler._local(self)
+
+    auth = dashboard.Handler._authorised
+    assert auth(Req("127.0.0.1"), {})
+    assert not auth(Req("192.168.1.20"), {})
+    assert auth(Req("192.168.1.20"), {"token": ["s3cret"]})
+    assert auth(Req("192.168.1.20", {"Cookie": "a=b; tp_token=s3cret"}), {})
+    assert not auth(Req("192.168.1.20", {"X-Token": "wrong"}), {})

@@ -29,6 +29,7 @@ OKX candles ─► strategy (strategy.json) ─► risk gate ─► OKX demo ord
 | `research.py` | walk-forward test of every strategy; `--save` writes the winner to `strategy.json` |
 | `check_connection.py` | read-only check of your OKX demo account (never places orders) |
 | `session_report.py` | after a demo run: compares your live demo trades with the backtest over the same hours |
+| `dashboard.py` + `web/` | the console: status, P&L, trades, live strategy analysis and controls |
 
 ## 1. Install
 
@@ -157,14 +158,38 @@ It also writes `reports/measured_costs.json`; put its maker fill share into
 `MAKER_FILL_RATE` in `.env` (or pass `--maker-fill-rate` to `research.py`) so the next
 research round uses what actually happened instead of assumptions.
 
-### Dashboard
+### The console
 
-Double-click `start_dashboard.bat` (or run `python dashboard.py`) and it
-opens http://127.0.0.1:8765 in your browser. Click **Update** to refresh:
-both bots' status, open positions valued at the live demo price, today's and
-all-time P&L, recent trades and the latest health check. It's read-only:
-it only reads the logs and state files plus public prices, never your keys,
-and it's reachable from this PC only. Close its window to stop it.
+Double-click `start_dashboard.bat` (or run `python dashboard.py`) and it opens
+http://127.0.0.1:8765. It shows:
+
+- **Overview**: today's and all-time P&L, open positions at the live demo price, both bots' status,
+  and, for every strategy, what it sees on its latest closed candle and how far price is from the
+  trigger.
+- **Strategies**: one chart per strategy with its indicators, past signals, the trigger price as a
+  dashed line, and a checklist of each entry condition (met or not), plus its research evidence.
+- **Trades**: every closed trade. Open one for the candles around it, why it entered (the
+  conditions on the signal candle), how it ended, slippage and limit-fill share.
+- **Activity**: every fill, skipped signal, stop move, start, stop and error.
+- **Controls**: start / stop each bot, pause new entries (the KILL file), close a position, and a
+  **daily profit target**. Enter a target and your funds, press *Assess the risk*: it estimates from
+  each strategy's research record how often a day would reach it, then asks you to confirm. Once
+  both bots' realized P&L for the UTC day reaches it, they take no new trades until midnight UTC
+  (optionally closing open positions too).
+
+The console never reads your API keys. Stop and Close leave a request in `control/` that the bot
+itself carries out on its next check (within a second or two), so its state and stops stay
+consistent; closing therefore needs the bot running. Starting a bot runs the same
+`python -m bot.runner` / `python -m bot.futures_runner`, with output in `logs/spot.out` /
+`logs/futures.out`.
+
+**On your phone**: run `start_dashboard_lan.bat` (or `python dashboard.py --lan`). The window prints
+a link with a private token; open it on a phone on the same Wi-Fi. Anyone with that link can start
+and stop the bots, so keep it to yourself. Windows may ask to let Python through the firewall:
+allow it on private networks only.
+
+The UI source is in `web/` (React + Vite). After changing it: `cd web`, `npm install` once, then
+`npm run build`.
 
 ## Settings (`.env`)
 
