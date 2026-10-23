@@ -7,9 +7,8 @@ deterministic decision making, and do they beat what it trades now?
 time-series momentum) are now the most consistent strategies in the library. They made money
 out of sample on 14 of 18 coin and timeframe pairs. Two published mean-reversion rules did not
 carry over to crypto. None of the four beat the strategy already trading on its coin by enough
-to justify the extra risk, so **the futures lineup stays as it is**. All four strategies are in the
-library, screened by `research.py` and explained in the console. Adding BTC time-series
-momentum as a ninth slot is an open choice; see the end.
+to justify the extra risk, so **the futures lineup stays at the same 8 slots**. All four strategies are in the
+library, screened by `research.py` and explained in the console.
 
 These are research estimates on demo data, not investment advice.
 
@@ -102,8 +101,9 @@ expectation.
 - **ETH swap: rejected.** The trend ensemble makes its money in a few big trends and loses small
   amounts in between. On a 2-month window it loses more often than trend pullback (P(loss) 53% on its
   own). Over a forward test, the extra drawdown costs more than the extra return is worth.
-- **BTC TS momentum: optional.** It is no worse on risk, but the gain is within noise and 36 trades
-  is just over the gate. Its file is saved as `strategies/tsmom_btc_4h_swap.json` if you want it.
+- **BTC TS momentum: not added (owner's call, 2026-10-23).** It is no worse on risk, but the gain
+  is within noise and 36 trades is just over the gate. Its file stays in
+  `strategies/tsmom_btc_4h_swap.json` for a later rebuild.
 
 ## Lessons
 
