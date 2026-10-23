@@ -198,3 +198,33 @@ a.btn { text-decoration: none; }
 .sg-trial .v { font-size: 22px; line-height: 30px; font-weight: 500; margin-top: 2px; }
 .sg-trial .d { color: var(--ink-3); font-size: 12px; line-height: 16px; }
 @media (max-width: 760px) { .sg-regime { grid-template-columns: minmax(0, 1fr); } .sg-trial { grid-template-columns: minmax(0, 1fr); } }
+
+/* plain trade plan: direction first, then the same rows for every signal */
+.sg-ticket.none, .sg-hero.none { --tint: var(--ink-3); --tint-c: var(--surface-2); }
+.sg-side { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sg-side .hint { color: var(--ink-2); font-size: 14px; line-height: 20px; }
+.sg-dir { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px 0 7px; border-radius: var(--r-full); font-size: 12px; font-weight: 700; letter-spacing: 0.06em; background: var(--surface-2); color: var(--ink-2); vertical-align: middle; }
+.sg-dir .icon { font-size: 16px; }
+.sg-dir.long, .sg-dir.buy { background: var(--up-container); color: var(--on-up-container); }
+.sg-dir.short { background: var(--down-container); color: var(--on-down-container); }
+.sg-dir.big { height: 40px; padding: 0 16px 0 12px; font-size: 18px; gap: 6px; border-radius: 12px; }
+.sg-dir.big .icon { font-size: 22px; }
+.sg-dir.long.big, .sg-dir.buy.big { background: var(--up); color: var(--surface); }
+.sg-dir.short.big { background: var(--down); color: var(--surface); }
+
+.sg-plan { margin: 0; display: grid; border-radius: var(--r-l); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.sg-plan > div { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 12px; padding: 10px 14px; align-items: baseline; }
+.sg-plan > div + div { box-shadow: inset 0 1px 0 var(--line); }
+.sg-plan dt { color: var(--ink-2); font-size: 13px; line-height: 18px; }
+.sg-plan dd { margin: 0; display: grid; gap: 2px; min-width: 0; }
+.sg-plan .v { font-size: 15px; line-height: 22px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.sg-plan .d { color: var(--ink-3); font-size: 12px; line-height: 16px; text-wrap: pretty; }
+.sg-plan .down .v { color: var(--down); }
+.sg-plan .up .v { color: var(--up); }
+.sg-plan .warn .v { color: var(--warn); }
+.sg-plan > div:first-child { background: color-mix(in srgb, var(--tint, var(--primary)) 7%, transparent); }
+.sg-plan > div:first-child .v { font-size: 16px; }
+@media (max-width: 760px) {
+  .sg-plan > div { grid-template-columns: 104px minmax(0, 1fr); gap: 10px; padding: 9px 12px; }
+  .sg-dir.big { height: 36px; font-size: 16px; }
+}

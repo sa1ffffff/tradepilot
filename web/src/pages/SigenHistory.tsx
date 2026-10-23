@@ -4,10 +4,11 @@ import { sigenApi, type Analysis, type JournalReport, type JournalRow, type Jour
 import type { Route } from '../lib/store';
 import { ago, clock, duration, price, strategyName, time, tzName, validWindow } from '../lib/format';
 import { PriceChart, type Level } from '../components/PriceChart';
-import { Btn, Chip, Coin, Empty, FilterChip, Icon, SideTag, Skeleton } from '../components/ui';
+import { Btn, Chip, Coin, Empty, FilterChip, Icon, Skeleton } from '../components/ui';
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const fmtR = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)}R`);
+const fmtR = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(1)}× risk`);
+const WORD = (r: JournalRow) => (r.market === 'spot' ? 'BUY' : r.direction === 'long' ? 'LONG' : 'SHORT');
 const toneR = (v: number | null | undefined) => (!v ? '' : v > 0 ? 'up' : 'down');
 
 const OUTCOME: Record<JournalRow['outcome']['status'], { tone: string; icon: string }> = {
@@ -19,8 +20,13 @@ const OUTCOME: Record<JournalRow['outcome']['status'], { tone: string; icon: str
 };
 
 const ENDED: Record<string, string> = {
-  tp: 'Take-profit hit', stop: 'Stop-loss hit', 'trailing stop': 'Trailing stop hit', signal: 'Exit rule fired'
+  tp: 'Reached take-profit', stop: 'Hit stop-loss', 'trailing stop': 'Hit the raised stop-loss', signal: 'SiGen said close'
 };
+
+function Dir({ r }: { r: JournalRow }) {
+  const k = r.market === 'spot' ? 'buy' : r.direction;
+  return <span className={`sg-dir ${k}`}><Icon name={r.direction === 'short' ? 'south_east' : 'north_east'} />{WORD(r)}</span>;
+}
 
 function OutcomeChip({ o }: { o: JournalRow['outcome'] }) {
   const m = OUTCOME[o.status];
@@ -30,13 +36,15 @@ function OutcomeChip({ o }: { o: JournalRow['outcome'] }) {
 /** The story of one signal, in words. */
 function story(r: JournalRow): string {
   const o = r.outcome;
-  const verb = r.market === 'spot' ? 'Buy' : r.direction === 'long' ? 'Long' : 'Short';
-  const start = `${verb} ${r.coin} at ${price(r.entry)} after the ${clock(r.valid_from)} close`;
-  if (o.status === 'open') return `${start}. Still open after ${o.bars_held} candle${o.bars_held === 1 ? '' : 's'}: ${fmtR(o.r_now)} so far, stop now ${price(o.stop_now)}.`;
-  if (o.status === 'no data') return `${start}. ${o.note || "The candles needed to judge it aren't available yet."}`;
-  const how = ENDED[o.exit_reason || ''] || 'Closed';
+  const start = `${r.market === 'spot' ? 'Bought' : `Opened a ${WORD(r)} on`} ${r.coin} at ${price(r.entry)}, ${clock(r.valid_from)}`;
+  if (o.status === 'open') return `${start}. Still open after ${(o.bars_held ?? 0) * 4} hours: ${fmtR(o.r_now)} so far. The stop-loss is now ${price(o.stop_now)}.`;
+  if (o.status === 'no data') return `${start}. ${o.note || "The prices needed to judge it aren't available yet."}`;
+  const how: Record<string, string> = {
+    tp: 'it reached the take-profit', stop: 'it hit the stop-loss', 'trailing stop': 'it hit the raised stop-loss', signal: 'SiGen said close'
+  };
   const when = duration(r.valid_from, o.exit_time || null);
-  return `${start}. ${how} ${when} later at ${price(o.exit_price)}, for ${fmtR(o.result_r)}.`;
+  const move = o.move_pct !== undefined ? ` (the price moved ${Math.abs(o.move_pct).toFixed(1)}% ${o.move_pct >= 0 ? 'your way' : 'against you'})` : '';
+  return `${start}. It closed ${when} later at ${price(o.exit_price)} because ${how[o.exit_reason || ''] || 'it was closed'}: ${fmtR(o.result_r)}${move}.`;
 }
 
 function Kpis({ s, label }: { s: JournalSummary; label: string }) {
@@ -48,12 +56,12 @@ function Kpis({ s, label }: { s: JournalSummary; label: string }) {
       <div className="kpi"><div className="label"><Icon name="task_alt" />Correct</div>
         <div className="value num">{s.win_rate_pct === null ? '—' : `${s.win_rate_pct.toFixed(0)}%`}</div>
         <div className="foot">{s.won} right, {s.lost} wrong, {s.flat} break-even</div></div>
-      <div className="kpi"><div className="label"><Icon name="science" />Versus testing</div>
+      <div className="kpi"><div className="label"><Icon name="science" />Versus past testing</div>
         <div className={`value num ${gap === null ? '' : gap >= 0 ? 'up' : 'down'}`}>{gap === null ? '—' : `${gap > 0 ? '+' : gap < 0 ? '−' : ''}${Math.abs(gap).toFixed(0)} pts`}</div>
-        <div className="foot">{s.tested_win_rate_pct === null ? 'no closed signals yet' : `tested win rate was ${s.tested_win_rate_pct.toFixed(0)}%`}</div></div>
-      <div className="kpi"><div className="label"><Icon name="functions" />Result</div>
+        <div className="foot">{s.tested_win_rate_pct === null ? 'no closed signals yet' : `in testing they won ${s.tested_win_rate_pct.toFixed(0)}%`}</div></div>
+      <div className="kpi"><div className="label"><Icon name="functions" />Total result</div>
         <div className={`value num ${toneR(s.total_r)}`}>{fmtR(s.total_r)}</div>
-        <div className="foot">{s.avg_r === null ? 'R = the risk from entry to stop' : `${fmtR(s.avg_r)} per closed signal`}</div></div>
+        <div className="foot">{s.avg_r === null ? 'risk = what a trade loses at its stop-loss' : `${fmtR(s.avg_r)} per closed signal`}</div></div>
     </div>
   );
 }
@@ -73,12 +81,12 @@ function Trial({ s, source }: { s: JournalSummary; source: 'live' | 'replay' }) 
   const n = Math.min(t.would_hold.closed, t.kept.closed);
   return (
     <section className="panel">
-      <div className="panel-head"><div><h3>Regime filter trial</h3>
+      <div className="panel-head"><div><h3>Choppy-market filter trial</h3>
         <div className="sub">{source === 'live'
-          ? (t.enough ? 'Enough closed trend signals on both sides to judge the filter on live data.' : `Collecting evidence: ${n} of ${t.needed} closed trend signals on the smaller side before this means anything.`)
-          : 'On the replay (hindsight; a demonstration only).'}</div></div></div>
+          ? (t.enough ? 'There are now enough closed signals on both sides to judge whether skipping choppy markets helps.' : `Collecting evidence: ${n} of the ${t.needed} closed signals needed on each side before this means anything.`)
+          : 'On the replay, which uses hindsight: a demonstration only.'}</div></div></div>
       <div className="panel-body sg-trial">
-        {side('would_hold', 'Signals it would have held back', 'in choppy markets')}
+        {side('would_hold', 'Signals it would have skipped', 'in choppy markets')}
         {side('kept', 'Signals it would have kept', '')}
       </div>
     </section>
@@ -128,22 +136,22 @@ function ReportSheet({ r, onClose }: { r: JournalRow | null; onClose: () => void
         <div className="sheet-head">
           <Coin symbol={t.symbol} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="t-title">{t.coin} <SideTag side={t.direction} /> <span className="muted t-small">signal report</span></div>
-            <div className="t-small muted">{t.market === 'spot' ? 'Spot' : 'Perpetual futures'} · {t.timeframe} · {strategyName(t.strategy)} · issued {time(t.valid_from)}</div>
+            <div className="t-title">{t.coin} <Dir r={t} /> <span className="muted t-small">signal report</span></div>
+            <div className="t-small muted">{t.market === 'spot' ? 'Spot' : 'Futures'} · {strategyName(t.strategy)} · signal from {time(t.valid_from)}</div>
           </div>
           <OutcomeChip o={o} />
           <Btn kind="ghost" iconOnly icon="close" title="Close" onClick={onClose} />
         </div>
         <div className="sheet-body">
-          {t.source === 'replay' && <div className="banner info"><Icon name="replay" /><div className="grow"><b>Replay.</b> Re-created from candles with the strategy chosen in the latest scan, which was picked on data that includes this period. Shows how a signal plays out, not live accuracy.</div></div>}
-          {t.late && <div className="banner warn"><Icon name="schedule" /><div className="grow">Logged after its entry candle (the console wasn't running when it fired). The plan is the same; the issue time is the entry candle's close.</div></div>}
+          {t.source === 'replay' && <div className="banner info"><Icon name="replay" /><div className="grow"><b>Replay.</b> Re-created from past prices with today's strategy, which was chosen using data that includes this period. It shows how a signal plays out, not how accurate live signals are.</div></div>}
+          {t.late && <div className="banner warn"><Icon name="schedule" /><div className="grow">Recorded late: the console wasn't running when this signal appeared. The plan is the same, and the signal time shown is when it really appeared.</div></div>}
 
           <section className={`sg-verdict ${o.status}`}>
             <div className="sg-verdict-top">
               <Icon name={OUTCOME[o.status].icon} />
               <div>
                 <div className="v">{o.verdict}</div>
-                <div className="t-small muted">{o.status === 'open' ? 'judged when it closes' : o.status === 'no data' ? '' : `the signal's own plan, before fees · ±${0.05}R counts as break-even`}</div>
+                <div className="t-small muted">{o.status === 'open' ? 'judged when the trade closes' : o.status === 'no data' ? '' : "judged by the signal's own plan, before fees · within ±0.05× risk counts as break-even"}</div>
               </div>
               <div className={`r num ${toneR(o.result_r ?? o.r_now)}`}>{fmtR(o.result_r ?? o.r_now)}</div>
             </div>
@@ -152,16 +160,16 @@ function ReportSheet({ r, onClose }: { r: JournalRow | null; onClose: () => void
 
           <div className="facts three num panel" style={{ overflow: 'hidden' }}>
             <div className="fact"><div className="k">Valid for entry</div><div className="v">{validWindow(t.valid_from, t.valid_until)}</div><div className="t-small faint">your time ({Intl.DateTimeFormat().resolvedOptions().timeZone})</div></div>
-            <div className="fact"><div className="k">Entry</div><div className="v">{price(t.entry)}</div><div className="t-small faint">{t.chase_limit ? `don't chase past ${price(t.chase_limit)}` : ''}</div></div>
-            <div className="fact"><div className="k">Could you get in?</div><div className={`v ${win ? (win.enterable ? 'up' : 'down') : ''}`}>{win ? (win.enterable ? 'Yes' : 'No') : '—'}</div>
-              <div className="t-small faint">{win ? `next candle opened at ${price(win.next_open)}` : 'next candle not closed yet'}</div></div>
-            <div className="fact"><div className="k">Stop-loss</div><div className="v down">{price(t.stop)}</div><div className="t-small faint">{o.trail_moved ? 'trailed later' : 'did not move'}</div></div>
-            <div className="fact"><div className="k">Take profit</div><div className="v up">{t.target ? price(t.target) : 'Exit rule'}</div><div className="t-small faint">{t.target ? '' : t.exit_rule || ''}</div></div>
-            <div className="fact"><div className="k">{o.status === 'open' ? 'Price now' : 'Exit'}</div><div className="v">{price(o.exit_price ?? o.price)}</div>
+            <div className="fact"><div className="k">Entry price</div><div className="v">{price(t.entry)}</div><div className="t-small faint">{t.chase_limit ? `don't enter past ${price(t.chase_limit)}` : ''}</div></div>
+            <div className="fact"><div className="k">Could you still get in?</div><div className={`v ${win ? (win.enterable ? 'up' : 'down') : ''}`}>{win ? (win.enterable ? 'Yes' : 'No') : '—'}</div>
+              <div className="t-small faint">{win ? `the next candle opened at ${price(win.next_open)}` : 'the next candle has not closed yet'}</div></div>
+            <div className="fact"><div className="k">Stop-loss</div><div className="v down">{price(t.stop)}</div><div className="t-small faint">{o.trail_moved ? 'raised later to protect profit' : 'never moved'}</div></div>
+            <div className="fact"><div className="k">Take-profit</div><div className="v up">{t.target ? price(t.target) : 'None'}</div><div className="t-small faint">{t.target ? '' : 'closed when SiGen said so'}</div></div>
+            <div className="fact"><div className="k">{o.status === 'open' ? 'Price now' : 'Closed at'}</div><div className="v">{price(o.exit_price ?? o.price)}</div>
               <div className="t-small faint">{o.exit_time ? `${ENDED[o.exit_reason || ''] || ''}, ${time(o.exit_time)}` : o.as_of ? `as of ${time(o.as_of)}` : ''}</div></div>
-            <div className="fact"><div className="k">Best it got</div><div className="v up">{fmtR(o.mfe_r)}</div><div className="t-small faint">max favourable move</div></div>
-            <div className="fact"><div className="k">Worst it got</div><div className="v down">{fmtR(o.mae_r)}</div><div className="t-small faint">max adverse move</div></div>
-            <div className="fact"><div className="k">Held</div><div className="v">{o.bars_held !== undefined ? `${o.bars_held} candle${o.bars_held === 1 ? '' : 's'}` : '—'}</div><div className="t-small faint">{o.bars_held !== undefined ? `${o.bars_held * 4} hours` : ''}</div></div>
+            <div className="fact"><div className="k">Best moment</div><div className="v up">{fmtR(o.mfe_r)}</div><div className="t-small faint">furthest it went in your favour</div></div>
+            <div className="fact"><div className="k">Worst moment</div><div className="v down">{fmtR(o.mae_r)}</div><div className="t-small faint">furthest it went against you</div></div>
+            <div className="fact"><div className="k">Lasted</div><div className="v">{o.bars_held !== undefined ? `${o.bars_held * 4} hours` : '—'}</div><div className="t-small faint">{o.bars_held !== undefined ? `${o.bars_held} four-hour candle${o.bars_held === 1 ? '' : 's'}` : ''}</div></div>
           </div>
 
           <section>
@@ -173,12 +181,12 @@ function ReportSheet({ r, onClose }: { r: JournalRow | null; onClose: () => void
           </section>
 
           <section className="tonal side-col">
-            <h4><Icon name="description" />As issued</h4>
+            <h4><Icon name="description" />What the signal said</h4>
             <p>{t.instruction}</p>
-            <p className="muted t-small" style={{ marginTop: 6 }}>Confidence {t.confidence.score}/100 ({t.confidence.label}). Tested win rate {t.tested.win_rate_pct.toFixed(0)}% over {t.tested.trades} trades. Logged {time(t.recorded_at)}. {t.rule}</p>
+            <p className="muted t-small" style={{ marginTop: 6 }}>Confidence {t.confidence.score}/100 ({t.confidence.label}). In past testing this strategy won {t.tested.win_rate_pct.toFixed(0)}% of {t.tested.trades} trades. Recorded {time(t.recorded_at)}.</p>
           </section>
 
-          <p className="sg-disclaimer"><Icon name="info" />Results use the signal's own entry, stop, target and exit rule, before fees and slippage. Real fills differ. Not financial advice.</p>
+          <p className="sg-disclaimer"><Icon name="info" />Results follow the signal's own entry, stop-loss, take-profit and close signal, before fees. Real trades fill at slightly different prices. Risk is what the trade would lose at its stop-loss. Not financial advice.</p>
         </div>
       </aside>
     </>
@@ -233,7 +241,7 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
         <div className="banner info">
           <Icon name="info" />
           <div className="grow">
-            <b>No live signals logged yet.</b> The console logs every new signal at each 4h close while it runs; each one is judged once its stop, target or exit rule ends it.
+            <b>No live signals recorded yet.</b> While the console is running, it records every new signal at each 4-hour close, and judges each one when its trade closes.
             {rep.summary.replay.signals > 0 ? ' Meanwhile, the replay below shows how the last 30 days of signals would have turned out.' : ' Replay the last 30 days to see how signals resolve.'}
           </div>
           {rep.summary.replay.signals === 0 && <div className="actions"><Btn kind="tonal" small icon="replay" busy={busy} onClick={replay}>Replay 30 days</Btn></div>}
@@ -243,7 +251,7 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
       <section className="panel">
         <div className="panel-head">
           <div><h3>{src === 'live' ? 'Live signals' : 'Replay, last 30 days'}</h3>
-            <div className="sub">{src === 'live' ? `Logged as issued${first ? ` since ${time(first)}` : ''}; nothing is edited afterwards` : "Today's strategies run over recent candles; picked with hindsight, so read it as a demonstration"}</div></div>
+            <div className="sub">{src === 'live' ? `Recorded the moment each signal appeared${first ? `, since ${time(first)}` : ''}. Nothing is changed afterwards.` : "Today's strategies run over the last 30 days of prices. They were chosen with hindsight, so treat this as a demonstration."}</div></div>
           <span className="t-small faint">Updated {ago(rep.generated_at, now)}</span>
         </div>
         <Kpis s={rep.summary[src]} label={src === 'live' ? 'Live' : 'Replayed'} />
@@ -272,7 +280,7 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
           <div className="table-wrap">
             <table className="data">
               <thead>
-                <tr><th>Issued ({tzName()})</th><th>Coin</th><th>Signal</th><th className="r">Entry</th><th className="r hide-sm">Stop-loss</th><th>Verdict</th><th className="r">Result</th><th className="hide-sm">How it ended</th></tr>
+                <tr><th>Signal time ({tzName()})</th><th>Coin</th><th>Trade</th><th className="r">Entry</th><th className="r hide-sm">Stop-loss</th><th>Verdict</th><th className="r">Result</th><th className="hide-sm">How it ended</th></tr>
               </thead>
               <tbody>
                 {shown.map(r => (
@@ -281,12 +289,12 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
                     onKeyDown={e => e.key === 'Enter' && go({ page: 'sigen', view: 'history', item: r.id })}>
                     <td className="num">{clock(r.valid_from)}{r.late && <span className="faint t-small"> · late</span>}</td>
                     <td><div className="sym"><Coin symbol={r.symbol} /><div><div className="name">{r.coin}</div><div className="meta">{r.market === 'spot' ? 'Spot' : 'Futures'} · {strategyName(r.strategy)}</div></div></div></td>
-                    <td><SideTag side={r.direction} /></td>
+                    <td><Dir r={r} /></td>
                     <td className="r num">{price(r.entry)}</td>
                     <td className="r num hide-sm down">{price(r.stop)}</td>
                     <td><OutcomeChip o={r.outcome} /></td>
                     <td className={`r num ${toneR(r.outcome.result_r ?? r.outcome.r_now)}`} style={{ fontWeight: 500 }}>{fmtR(r.outcome.result_r ?? r.outcome.r_now)}{r.outcome.status === 'open' && <span className="faint t-small"> so far</span>}</td>
-                    <td className="muted hide-sm">{r.outcome.status === 'open' ? `${r.outcome.bars_held} candles in` : ENDED[r.outcome.exit_reason || ''] || '—'}{r.regime?.would_hold && <span className="faint" title="The regime filter would have held this back"> · choppy</span>}</td>
+                    <td className="muted hide-sm">{r.outcome.status === 'open' ? `open for ${(r.outcome.bars_held ?? 0) * 4} h` : ENDED[r.outcome.exit_reason || ''] || '—'}{r.regime?.would_hold && <span className="faint" title="The regime filter would have held this back"> · choppy</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -294,7 +302,7 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
           </div>
         )}
       </section>
-      <p className="sg-disclaimer"><Icon name="info" />A signal is correct if its own plan (entry, stop-loss, target, exit rule) ended above +0.05R, before fees. Past signals don't predict future ones.</p>
+      <p className="sg-disclaimer"><Icon name="info" />A signal counts as correct if following its plan (entry, stop-loss, take-profit, close signal) made more than 0.05× its risk, before fees. Past signals don't predict future ones.</p>
       <ReportSheet r={selected} onClose={() => go({ page: 'sigen', view: 'history' })} />
     </>
   );

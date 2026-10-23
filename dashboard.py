@@ -529,6 +529,8 @@ def sigen_chart(market: str, coin: str) -> dict:
     spec = StrategySpec.from_dict(res["chosen"]["spec"])
     df = sigen_fetch(res["symbol"], sigen.TIMEFRAME, warmup_bars(spec) + 300)
     a = analyse(df, spec, sigen.TIMEFRAME, bars=160)
+    for item in a["lines"] + a["panes"]:   # chart legend in the same plain words as the signal
+        item["name"] = sigen.plain(item["name"])
     a.update({"bot": market, "symbol": res["symbol"], "timeframe": sigen.TIMEFRAME, "label": spec.label(),
               "fills": []})
     return a

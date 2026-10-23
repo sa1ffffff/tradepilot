@@ -70,10 +70,10 @@ NOT_COINS = {"USDT", "USDC", "DAI", "USDS", "USDE", "FDUSD", "TUSD", "PYUSD", "U
 FEATURES = ["mom_6", "mom_42", "mom_180", "ema50_atr", "ema200_atr", "rsi14", "atr_pct",
             "vol_regime", "volume_z", "channel_pos"]
 FEATURE_TEXT = {
-    "mom_6": "1-day momentum", "mom_42": "1-week momentum", "mom_180": "1-month momentum",
-    "ema50_atr": "distance from EMA 50", "ema200_atr": "distance from EMA 200", "rsi14": "RSI 14",
-    "atr_pct": "volatility (ATR %)", "vol_regime": "volatility vs normal", "volume_z": "volume vs normal",
-    "channel_pos": "position in the 55-bar range",
+    "mom_6": "move over the last day", "mom_42": "move over the last week", "mom_180": "move over the last month",
+    "ema50_atr": "price vs its 50-candle average", "ema200_atr": "price vs its 200-candle average",
+    "rsi14": "overbought or oversold (RSI)", "atr_pct": "how jumpy the price is", "vol_regime": "jumpiness vs normal",
+    "volume_z": "trading volume vs normal", "channel_pos": "where price sits in its recent range",
 }
 
 
@@ -435,10 +435,33 @@ def scan(root: str = ".", coins: list[str] | None = None, workers: int | None = 
 
 
 # --- live signals ---------------------------------------------------------------------
-VERB = {("spot", 1): "Buy", ("futures", 1): "Go long", ("futures", -1): "Go short"}
-EXIT_VERB = {("spot", 1): "Sell", ("futures", 1): "Close the long", ("futures", -1): "Close the short"}
-EXIT_WHY = {"signal": "the exit rule fired", "stop": "the stop-loss was hit", "tp": "the target was reached",
+EXIT_WHY = {"signal": "the strategy's exit condition was met on the latest 4-hour candle",
+            "stop": "the price reached the stop-loss", "tp": "the price reached the take-profit",
             "liquidated": "the position was liquidated"}
+
+
+def side_word(market: str, d: int) -> str:
+    """LONG / SHORT on futures; spot can only buy."""
+    return "BUY" if market == "spot" else ("LONG" if d > 0 else "SHORT")
+
+
+def pct(level: float, base: float) -> str:
+    v = (level / base - 1) * 100
+    return f"{'+' if v > 0 else '-' if v < 0 else ''}{abs(v):.1f}%"
+
+
+def plain(text):
+    """Strategy wording for everyone: candles, not bars."""
+    if not isinstance(text, str):
+        return text
+    import re
+    text = re.sub(r"\b(\d+)-bar\b", r"\1-candle", text)
+    text = re.sub(r"\bbars\b", "candles", text)
+    text = re.sub(r"\bbar\b", "candle", text)
+    text = re.sub(r"\bStop ([\d.]+)× ATR\b", r"Stop-loss \1× the average candle size away", text)
+    text = re.sub(r"\btarget ([\d.]+)R\b", r"take-profit at \1× the risk", text)
+    text = re.sub(r"\bno target\b", "no fixed take-profit", text)
+    return re.sub(r"\bEMA (\d+)\b", r"the \1-candle average", text)
 
 
 def _fmt(v):
@@ -470,11 +493,10 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg, filt: dict | None
            "price": close, "bar_time": a["bar_time"], "next_decision": a["next_decision"],
            "headline": a["headline"], "entry": None, "stop": None, "target": None, "trail": None,
            "direction": None, "signal_time": None, "spec": spec.to_dict(), "entry_bar": None}
-    tp_text = None
     if fut and trail_params(spec, cfg)[0] > 0:
         start_r, trail_atr = trail_params(spec, cfg)
-        out["trail"] = (f"Once the trade is {start_r:g}R in profit, the stop trails {trail_atr:g} ATR "
-                        f"behind the best price.")
+        out["trail"] = (f"Once the trade is up {start_r:g} times what you risked, SiGen moves the stop-loss "
+                        f"up behind the price to lock in profit, and shows the new level here.")
 
     def levels(d: int, entry: float, dist: float):
         out.update(direction="long" if d > 0 else "short", entry=entry, stop=entry - d * dist,
@@ -541,40 +563,51 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg, filt: dict | None
         if out["state"] == "holding":
             out["late_entry_ok"] = bool(dn_ * (close - out["chase_limit"]) <= 0 and dn_ * (close - out["stop"]) > 0)
 
-    # the instruction, in words
+    # the instruction, in plain words: same shape for every signal
     st, dn = out["state"], (1 if out["direction"] != "short" else -1)
-    verb, exit_verb = VERB.get((market, dn), "Buy"), EXIT_VERB.get((market, dn), "Sell")
-    if out["target"]:
-        tp_text = f"take profit at {_fmt(out['target'])}"
+    side = side_word(market, dn)
+    for k in ("exit_rule", "headline", "rule"):
+        out[k] = plain(out.get(k))
+    out["trigger"] = {k: plain(v) for k, v in out["trigger"].items()}
+    out["checks"] = [{**c, "label": plain(c["label"]), "detail": plain(c["detail"])} for c in out["checks"]]
+
+    def stop_part(entry):
+        return f"Set the stop-loss at {_fmt(out['stop'])} ({pct(out['stop'], entry)} from entry)"
+
+    def target_part(entry):
+        if out["target"]:
+            return f" and the take-profit at {_fmt(out['target'])} ({pct(out['target'], entry)})."
+        return ". There is no fixed take-profit: keep the trade until SiGen says to close it."
+
     if st == "entry":
-        out["action"] = verb
-        out["instruction"] = (f"{verb} {coin} now, near {_fmt(out['entry'])}. Stop-loss at {_fmt(out['stop'])}"
-                              + (f", {tp_text}" if tp_text else "") + ".")
+        out["action"] = "Buy now" if market == "spot" else f"Open a {side} now"
+        lead = f"Buy {coin} now" if market == "spot" else f"Open a {side} on {coin} now"
+        out["instruction"] = f"{lead}, at about {_fmt(out['entry'])}. {stop_part(out['entry'])}{target_part(out['entry'])}"
     elif st == "holding":
-        out["action"] = "Hold" if market == "spot" else f"Hold the {'long' if dn > 0 else 'short'}"
-        what = "Buy signal" if market == "spot" else f"{'Long' if dn > 0 else 'Short'} signal"
-        out["instruction"] = (f"{what} active since entry at {_fmt(out['entry'])}. The exit conditions "
-                              f"haven't fired; the stop is now {_fmt(out['stop'])}.")
+        out["action"] = "Keep holding" if market == "spot" else f"Keep the {side} open"
+        what = f"This {coin} buy" if market == "spot" else f"This {side} on {coin}"
+        out["instruction"] = (f"{what} is already open, entered at {_fmt(out['entry'])}. Keep the stop-loss at "
+                              f"{_fmt(out['stop'])}. SiGen will tell you when to close.")
     elif st == "exit":
-        out["action"] = exit_verb
-        out["instruction"] = (f"{exit_verb} {coin}: {EXIT_WHY.get(out['exit_reason'], 'the exit rule fired')} "
-                              f"on the latest candle (entry {_fmt(out['entry'])}, exit {_fmt(out['exit_price'])}).")
+        out["action"] = "Sell now" if market == "spot" else f"Close the {side} now"
+        what = f"Sell your {coin}" if market == "spot" else f"Close your {side} on {coin}"
+        out["instruction"] = f"{what} now: {EXIT_WHY.get(out['exit_reason'], EXIT_WHY['signal'])}."
     elif st == "armed":
         word = "above" if out["entry"] > close else "below"  # reversion rules wait for a move against the side
-        out["action"] = f"{verb} {word} {_fmt(out['entry'])}"
-        out["instruction"] = (f"{verb} {coin} if a 4h candle closes {word} {_fmt(out['entry'])} "
-                              f"({(out['entry'] / close - 1) * 100:+.2f}% from now). Then stop-loss at about "
-                              f"{_fmt(out['stop'])}" + (f", {tp_text}" if tp_text else "") + ".")
+        out["action"] = f"Wait: {'buy' if market == 'spot' else side} if it closes {word} {_fmt(out['entry'])}"
+        lead = f"buy {coin}" if market == "spot" else f"open a {side} on {coin}"
+        out["instruction"] = (f"No trade yet. Only {lead} if a 4-hour candle closes {word} {_fmt(out['entry'])} "
+                              f"({pct(out['entry'], close)} from now). Then s{stop_part(out['entry'])[1:]}"
+                              f"{target_part(out['entry'])}")
     else:
-        out["action"] = "Wait"
-        out["instruction"] = "No price trigger yet. " + a["headline"]
+        out["action"] = "No trade yet"
+        out["instruction"] = (f"No trade yet: there is no setup on {coin} right now. SiGen checks again at every "
+                              f"4-hour close.")
     rg = out["regime"]
     if rg["held_back"] and st in ("entry", "armed"):
-        rule = rg["rule"]
-        out["state"], out["action"] = "held", "Held back"
-        out["instruction"] = (f"Held back by the regime filter: {coin} is choppy ({rule['measure']} "
-                              f"{rg.get(rule['measure'])}, {rule['side']} {rule['threshold']}), and trend signals "
-                              f"in chop are skipped. Otherwise: " + out["instruction"])
+        out["state"], out["action"] = "held", "Skip: too choppy"
+        out["instruction"] = (f"Skip this one. {coin}'s price has been going back and forth without a clear "
+                              f"direction, and signals like this one tend to lose in that kind of market.")
     return out
 
 

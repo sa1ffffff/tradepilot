@@ -23,7 +23,7 @@ const HEADS: Record<Route['page'], [string, string]> = {
   overview: ['Overview', 'Profit and loss, open positions, and what every strategy is looking for right now.'],
   strategies: ['Strategies', 'Each strategy on its latest closed candle: the conditions it checks, which hold, and the price that would trigger it.'],
   trades: ['Trades', 'Every closed trade. Open one to see the candles, why it entered, and how it ended.'],
-  sigen: ['SiGen', 'Buy and sell signals for the 25 largest coins. Each comes from a strategy that passed testing on that coin, with an AI estimate of how far to trust it.'],
+  sigen: ['SiGen', 'LONG and SHORT trade signals for the 25 largest coins, each with an entry price, stop-loss and take-profit. Every signal comes from a strategy that made money on that coin in testing.'],
   activity: ['Activity', 'Every order, skipped signal, stop move, start, stop and error, newest first.'],
   controls: ['Controls', 'Start and stop the bots, pause new entries, and set a daily profit target.']
 };

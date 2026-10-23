@@ -44,7 +44,7 @@ def test_filter_on_turns_entries_into_held_signals():
         plain = sigen.signal_for(res, model, df, sigen.configs()["futures"])
         held = sigen.signal_for(res, model, df, sigen.configs()["futures"], {"mode": "on", "rule": rule})
         if plain["state"] in ("entry", "armed"):
-            assert held["state"] == "held" and held["instruction"].startswith("Held back")
+            assert held["state"] == "held" and held["instruction"].startswith("Skip this one")
             seen.add(plain["state"])
         else:
             assert held["state"] == plain["state"]
