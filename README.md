@@ -293,3 +293,18 @@ data), not the demo. Before any signal is shown, the user accepts a one-time ter
 declaration, signed with their name; it is stored in `data/sigen/terms_acceptance.json`, and
 changing the terms asks again. SiGen never reads the API keys or places orders. The
 **Rescan** button reruns the scan; outputs live in `data/sigen/` (not committed).
+
+### Signal validity and history
+
+Every signal shows when it can be acted on, in your own time zone: an entry is valid for the
+4 hours after the candle that triggered it, and only while price hasn't run more than 0.3R
+past the entry (the chase limit). Past that, the trade's risk and reward are no longer the
+ones tested. **Signal history** (a tab on the SiGen page) is the journal of every signal SiGen
+issued (`bot/sigen_journal.py`). The console logs new signals at each 4h close while it runs,
+whether or not the page is open, and never edits a record afterwards. Each signal is judged by
+following its own plan candle by candle (stop-loss, target, trailing stop, exit rule): correct
+above +0.05R, wrong below -0.05R, before fees. The report adds how far price went for and
+against it, and whether the next candle opened inside the chase limit. **Download report**
+gives the whole journal as CSV. **Replay 30 days** fills the page with the signals today's
+strategies would have issued recently; replays are kept apart from live results because the
+strategies were picked on data that includes those weeks.

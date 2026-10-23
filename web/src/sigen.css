@@ -153,3 +153,32 @@ dialog .sg-terms-text { margin-top: 0; max-height: 55vh; overflow-y: auto; text-
   .bottom-nav .rail-item .lbl { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) { .sg-ticket { transition-duration: 0.01ms; } }
+
+/* tabs, validity, signal history */
+.sg-tabs { display: flex; }
+.sg-valid { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--r-m); font-size: 13px; line-height: 18px; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint, var(--primary)) 22%, var(--line)); }
+.sg-valid .icon { font-size: 18px; color: var(--tint, var(--primary)); margin-top: 0; }
+.sg-valid b { color: var(--ink); font-weight: 600; }
+.sg-valid.entry { background: var(--surface); }
+.sg-valid.late .icon { color: var(--warn); }
+.sg-chip-gap { width: 8px; }
+.panel-head + .kpis { border-top: 1px solid var(--line); }
+
+.sg-verdict { --v: var(--ink-3); --vc: var(--surface-2); display: grid; gap: 10px; padding: 18px 20px; border-radius: var(--r-xl); background: color-mix(in srgb, var(--vc) 40%, var(--surface)); border: 1px solid color-mix(in srgb, var(--v) 26%, var(--line)); }
+.sg-verdict.won { --v: var(--up); --vc: var(--up-container); }
+.sg-verdict.lost { --v: var(--down); --vc: var(--down-container); }
+.sg-verdict.open { --v: var(--primary); --vc: var(--primary-container); }
+.sg-verdict-top { display: flex; align-items: center; gap: 12px; }
+.sg-verdict-top > .icon { font-size: 32px; color: var(--v); font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24; }
+.sg-verdict-top > div:not(.r) { flex: 1; min-width: 0; }
+.sg-verdict-top .r { white-space: nowrap; }
+.sg-verdict .v { font-size: 26px; line-height: 32px; font-weight: 500; letter-spacing: -0.01em; color: var(--v); }
+.sg-verdict .r { font-size: 28px; line-height: 34px; font-weight: 500; letter-spacing: -0.01em; }
+.sg-verdict p { font-size: 15px; line-height: 22px; text-wrap: pretty; max-width: 62ch; }
+@media (max-width: 760px) {
+  .sg-verdict { padding: 16px; border-radius: 24px; }
+  .sg-verdict .v { font-size: 22px; line-height: 28px; }
+  .sg-verdict .r { font-size: 22px; line-height: 28px; }
+}
+
+a.btn { text-decoration: none; }

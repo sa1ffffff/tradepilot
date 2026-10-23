@@ -284,6 +284,11 @@ export interface Signal {
   headline: string;
   checks: Check[];
   checks_at: 'now' | 'entry';
+  valid_from: string;
+  valid_until: string;
+  chase_limit?: number;
+  late_entry_ok?: boolean;
+  entry_bar: string | null;
   trigger: Partial<Record<'long' | 'short', string>>;
   confidence: { score: number; label: 'High' | 'Medium' | 'Low';
     parts: { edge_certainty: number; folds_positive: number; ai_setup: number; ai_weight: number; unusual_market: boolean } };
@@ -310,10 +315,75 @@ export interface SigenSignals {
   };
 }
 
+export interface JournalOutcome {
+  status: 'won' | 'lost' | 'flat' | 'open' | 'no data';
+  verdict: string;
+  exit_price?: number;
+  exit_reason?: string;
+  exit_time?: string;
+  result_r?: number;
+  r_now?: number;
+  price?: number;
+  stop_now?: number;
+  move_pct?: number;
+  bars_held?: number;
+  mfe_r?: number;
+  mae_r?: number;
+  trail_moved?: boolean;
+  as_of?: string;
+  note?: string;
+  entry_window: { next_open: number; enterable: boolean } | null;
+}
+
+export interface JournalRow {
+  id: string;
+  source: 'live' | 'replay';
+  late: boolean;
+  market: SigenMarket;
+  coin: string;
+  symbol: string;
+  direction: 'long' | 'short';
+  strategy: string;
+  label: string;
+  rule: string;
+  timeframe: string;
+  entry_bar: string;
+  signal_time: string;
+  valid_from: string;
+  valid_until: string;
+  entry: number;
+  stop: number;
+  target: number | null;
+  chase_limit: number | null;
+  trail: string | null;
+  exit_rule: string | null;
+  instruction: string;
+  confidence: { score: number; label: string };
+  tested: { win_rate_pct: number; expected_win_rate_pct: number; trades: number; profit_factor: number };
+  recorded_at: string;
+  outcome: JournalOutcome;
+}
+
+export interface JournalSummary {
+  signals: number; closed: number; open: number; won: number; lost: number; flat: number;
+  win_rate_pct: number | null; tested_win_rate_pct: number | null; avg_r: number | null; total_r: number;
+}
+
+export interface JournalReport {
+  generated_at: string;
+  summary: Record<'live' | 'replay', JournalSummary>;
+  signals: JournalRow[];
+  flat_r: number;
+  chase_r: number;
+}
+
 export const sigenApi = {
   status: () => get<SigenStatus>('/api/sigen'),
   signals: (market: SigenMarket) => get<SigenSignals>(`/api/sigen/signals?market=${market}`),
   chart: (market: SigenMarket, coin: string) => get<Analysis>(`/api/sigen/chart?market=${market}&coin=${encodeURIComponent(coin)}`),
   accept: (name: string, statements: string[], version: string) => post('/api/sigen/accept', { name, statements, version }),
-  scan: () => post('/api/sigen/scan')
+  scan: () => post('/api/sigen/scan'),
+  journal: () => get<JournalReport>('/api/sigen/journal'),
+  backfill: (days = 30) => post('/api/sigen/backfill', { days }),
+  journalCsv: '/api/sigen/journal.csv'
 };

@@ -152,3 +152,15 @@ def test_signals_api_is_locked_until_terms_are_accepted(tmp_path, monkeypatch):
         assert code == 200 and res["scanned"] is False
     finally:
         srv.shutdown()
+
+
+def test_numpy_values_reach_the_browser_as_json_values():
+    import numpy as np
+
+    class Req:
+        def _send(self, code, body, ctype, extra=None):
+            self.body = body
+
+    r = Req()
+    dashboard.Handler._json(r, 200, {"ok": np.bool_(False), "x": np.float64(1.5), "n": np.int64(3)})
+    assert json.loads(r.body) == {"ok": False, "x": 1.5, "n": 3}

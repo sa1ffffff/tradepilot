@@ -3,6 +3,9 @@ passed out-of-sample testing on that coin, with an AI read of how much to trust 
 
     python -m bot.sigen scan          # research + AI model, a few minutes; writes data/sigen/
     python -m bot.sigen signals       # print the current signals (both markets)
+    python -m bot.sigen record        # log this candle's new signals to the journal (bot/sigen_journal.py)
+    python -m bot.sigen backfill      # replay the last 30 days into the journal, marked as replays
+    python -m bot.sigen report        # how logged signals turned out
 
 How a signal is made
 1. Universe: the 25 largest coins by market cap (CoinGecko) that OKX lists both
@@ -59,6 +62,7 @@ RESEARCH_MARKET = {"spot": "spot", "futures": "swap"}
 DIR = os.path.join("data", "sigen")
 SHRINK_TRADES = 30              # win-rate shrinkage toward the strategy's all-coin average
 HOLDOUT = 0.3
+CHASE_R = 0.3                   # don't enter once price is this many R past the signal's entry
 NOT_COINS = {"USDT", "USDC", "DAI", "USDS", "USDE", "FDUSD", "TUSD", "PYUSD", "USD1", "RLUSD", "USDG",
              "USDD", "USDF", "USDY", "USYC", "BUIDL", "EURC", "XAUT", "PAXG", "WBTC", "WETH", "STETH",
              "WSTETH", "WEETH", "CBBTC", "LEO"}
@@ -465,7 +469,7 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
            "timeframe": TIMEFRAME, "strategy": spec.name, "label": spec.label(), "rule": rule_text(spec),
            "price": close, "bar_time": a["bar_time"], "next_decision": a["next_decision"],
            "headline": a["headline"], "entry": None, "stop": None, "target": None, "trail": None,
-           "direction": None, "signal_time": None}
+           "direction": None, "signal_time": None, "spec": spec.to_dict(), "entry_bar": None}
     tp_text = None
     if fut and trail_params(spec, cfg)[0] > 0:
         start_r, trail_atr = trail_params(spec, cfg)
@@ -483,6 +487,7 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
         out["stop"] = held["stop"]
         out["initial_stop"] = held["entry"] - d * held["init_dist"]
         out["signal_time"] = (pd.Timestamp(held["time"]) + bar).isoformat()  # filled at that candle's close
+        out["entry_bar"] = pd.Timestamp(held["time"]).isoformat()
         out["r_now"] = round(d * (close - held["entry"]) / held["init_dist"], 2)
         new = pd.Timestamp(held["time"]) == last_t
         out["state"] = "entry" if new else "holding"
@@ -491,7 +496,8 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
         t = trades[-1]
         d = 1 if t.side == "long" else -1
         out.update(state="exit", direction=t.side, entry=t.entry, exit_price=t.exit, exit_reason=t.reason,
-                   result_r=round(t.R, 2), signal_time=(t.entry_time + bar).isoformat())
+                   result_r=round(t.R, 2), signal_time=(t.entry_time + bar).isoformat(),
+                   entry_bar=t.entry_time.isoformat())
         i = times.get_indexer([t.entry_time])[0]
         ai = model.predict(fx[d][i], spec.name, d)
     else:
@@ -522,6 +528,15 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
     out["confidence"] = confidence(chosen, ai, model.d)
     out["accuracy"] = accuracy(chosen, model.d)
     out["accuracy"]["history_days"] = int(res.get("bars", 0) // 6)
+
+    # validity: an entry is good for one candle, and only while price hasn't run past the chase limit
+    out["valid_from"], out["valid_until"] = a["bar_close_time"], a["next_decision"]
+    if out["state"] in ("entry", "holding", "armed") and out["entry"] and out["stop"] is not None:
+        dn_ = 1 if out["direction"] != "short" else -1
+        risk = abs(out["entry"] - (out.get("initial_stop") or out["stop"]))
+        out["chase_limit"] = out["entry"] + dn_ * CHASE_R * risk
+        if out["state"] == "holding":
+            out["late_entry_ok"] = bool(dn_ * (close - out["chase_limit"]) <= 0 and dn_ * (close - out["stop"]) > 0)
 
     # the instruction, in words
     st, dn = out["state"], (1 if out["direction"] != "short" else -1)
@@ -668,7 +683,8 @@ def accept(name: str, statements: list[str], version: str, root: str = ".") -> d
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("command", choices=["scan", "signals"])
+    p.add_argument("command", choices=["scan", "signals", "record", "backfill", "report"])
+    p.add_argument("--days", type=int, default=30, help="backfill: how far back")
     p.add_argument("--coins", help="comma-separated, instead of the top 25 (e.g. BTC,ETH)")
     p.add_argument("--offline", action="store_true", help="use cached candles only")
     p.add_argument("--workers", type=int)
@@ -683,6 +699,22 @@ def main() -> None:
         for m in MARKETS:
             h = read(".", f"model_{m}.json")["holdout"]
             print(f"  {m} AI holdout: AUC {h['auc']}, Brier skill {h['brier_skill']}, {h['trades']} trades")
+    elif args.command in ("record", "backfill", "report"):
+        from bot import sigen_journal as j
+        if args.command == "record":
+            for m in MARKETS:
+                res = live(m)
+                print(f"{m}: logged {len(j.record(res['signals'], scan_at=res.get('generated_at')))} new signals")
+        elif args.command == "backfill":
+            print(f"replayed {j.backfill(days=args.days)} signals from the last {args.days} days")
+        else:
+            rep = j.report()
+            for src, b in rep["summary"].items():
+                print(f"{src}: {b}")
+            for r in rep["signals"][:40]:
+                o = r["outcome"]
+                print(f"  {r['entry_bar'][:16]} {r['market']:7} {r['coin']:6} {r['direction']:5} {o['verdict']:11} "
+                      f"{o.get('result_r', o.get('r_now'))}R  {o.get('exit_reason', '')}  [{r['source']}]")
     else:
         for m in MARKETS:
             res = live(m)

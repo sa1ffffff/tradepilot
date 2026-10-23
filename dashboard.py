@@ -525,6 +525,41 @@ def sigen_chart(market: str, coin: str) -> dict:
     return a
 
 
+def sigen_record() -> int:
+    """Log this candle's new signals in both markets (bot/sigen_journal.py)."""
+    from bot import sigen, sigen_journal
+    if not os.path.exists(sigen.path(HERE, "scan.json")):
+        return 0
+    added = 0
+    for m in sigen.MARKETS:
+        res = sigen_signals(m)
+        added += len(sigen_journal.record(res.get("signals", []), HERE, scan_at=res.get("generated_at")))
+    return added
+
+
+def sigen_recorder() -> None:
+    """Background thread: after every 4h close, compute and log the signals, whether or not
+    anyone has the page open, so the journal has every signal as it was issued."""
+    last = None
+    while True:
+        bar = int(time.time() // (4 * 3600))
+        if bar != last and time.time() - bar * 4 * 3600 > 90:   # give OKX a moment to close the candle
+            try:
+                sigen_record()
+                last = bar
+            except Exception as e:  # network blips: try again next minute
+                print(f"SiGen recorder: {e!r}"[:200])
+        time.sleep(60)
+
+
+def sigen_journal_report() -> dict:
+    from bot import sigen, sigen_journal
+    jf = sigen.path(HERE, sigen_journal.FILE)
+    mtime = os.path.getmtime(jf) if os.path.exists(jf) else 0
+    return cached(("sigen-journal", mtime, int(time.time() // 300)), 300,
+                  lambda: sigen_journal.report(HERE, fetch=sigen_fetch))
+
+
 def start_sigen_scan() -> dict:
     from bot import sigen
     if is_held(sigen.path(HERE, "scan")):
@@ -655,7 +690,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json(self, code: int, data) -> None:
-        self._send(code, json.dumps(data, default=str).encode(), "application/json")
+        # numpy scalars (np.bool_, np.float64) become plain JSON values, not strings like "False"
+        self._send(code, json.dumps(data, default=lambda o: o.item() if hasattr(o, "item") else str(o)).encode(),
+                   "application/json")
 
     def _local(self) -> bool:
         return self.client_address[0] in ("127.0.0.1", "::1")
@@ -692,12 +729,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, assess_target(float(q["usd"][0]), float(funds) if funds else None))
             if url.path == "/api/sigen":
                 return self._json(200, sigen_status())
-            if url.path in ("/api/sigen/signals", "/api/sigen/chart"):
+            if url.path in ("/api/sigen/signals", "/api/sigen/chart", "/api/sigen/journal", "/api/sigen/journal.csv"):
                 from bot import sigen
                 if not sigen.acceptance(HERE)["accepted"]:  # signals only after the declaration
                     return self._json(403, {"error": "accept the SiGen terms first"})
                 if url.path == "/api/sigen/signals":
-                    return self._json(200, sigen_signals(q["market"][0]))
+                    res = sigen_signals(q["market"][0])
+                    from bot import sigen_journal
+                    sigen_journal.record(res.get("signals", []), HERE, scan_at=res.get("generated_at"))
+                    return self._json(200, res)
+                if url.path == "/api/sigen/journal":
+                    return self._json(200, sigen_journal_report())
+                if url.path == "/api/sigen/journal.csv":
+                    from bot import sigen_journal
+                    body = sigen_journal.to_csv(sigen_journal_report()["signals"]).encode()
+                    name = f"sigen-signal-report-{datetime.now(timezone.utc):%Y%m%d}.csv"
+                    return self._send(200, body, "text/csv; charset=utf-8",
+                                      {"Content-Disposition": f'attachment; filename="{name}"'})
                 return self._json(200, sigen_chart(q["market"][0], q["coin"][0]))
         except LookupError as e:
             return self._json(404, {"error": str(e)})
@@ -747,6 +795,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True, "message": "Terms accepted. Welcome to SiGen."})
             if url.path == "/api/sigen/scan":
                 return self._json(200, start_sigen_scan())
+            if url.path == "/api/sigen/backfill":
+                from bot import sigen_journal
+                days = max(1, min(90, int(body.get("days") or 30)))
+                n = sigen_journal.backfill(HERE, days, fetch=sigen_fetch)
+                return self._json(200, {"ok": True, "message": f"Replayed {n} signal{'s' if n != 1 else ''} "
+                                        f"from the last {days} days." if n else "No new signals to replay."})
         except Exception as e:
             return self._json(500, {"error": repr(e)[:300]})
         self._json(404, {"error": "unknown action"})
@@ -804,6 +858,7 @@ def main() -> None:
             webbrowser.open(url)
         except Exception:
             pass
+    threading.Thread(target=sigen_recorder, daemon=True, name="sigen-recorder").start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

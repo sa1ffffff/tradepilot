@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { sigenApi, type Analysis, type Signal, type SigenMarket, type SigenSignals, type SigenStatus, type SigenTerms } from '../lib/api';
 import type { Route } from '../lib/store';
-import { ago, price, strategyName, time, until } from '../lib/format';
+import { ago, clock, price, strategyName, time, tzName, until, validWindow } from '../lib/format';
+import { SigenHistory } from './SigenHistory';
 import { PriceChart, type Level } from '../components/PriceChart';
 import { Checklist } from '../components/Thinking';
 import { Btn, Chip, Coin, Dialog, Empty, Icon, Segmented, SideTag, Skeleton } from '../components/ui';
@@ -179,6 +180,28 @@ function Levels({ s }: { s: Signal }) {
   );
 }
 
+/** When a signal can be acted on, in the viewer's own time, plus the price beyond which it's too late. */
+export function Validity({ s }: { s: Signal }) {
+  const beyond = s.direction === 'short' ? 'below' : 'above';
+  const lim = s.chase_limit != null ? price(s.chase_limit) : null;
+  const tz = tzName(new Date(s.valid_until));
+  let text: ReactNode;
+  if (s.state === 'entry') {
+    text = <>Valid for entry <b>{validWindow(s.valid_from, s.valid_until)}</b>{lim && <>, and only while price isn't {beyond} <b>{lim}</b></>}. After that, don't enter.</>;
+  } else if (s.state === 'armed') {
+    text = <>Applies to the candle closing <b>{clock(s.valid_until)} {tz}</b>. If it triggers, the entry is valid for the 4 hours after that close{lim && <>, up to {lim}</>}.</>;
+  } else if (s.state === 'holding') {
+    text = s.late_entry_ok
+      ? <>Active until the stop or exit rule. A late entry is still inside the limit while price isn't {beyond} <b>{lim}</b>.</>
+      : <>Active until the stop or exit rule. Too late for a new entry: price is past the chase limit{lim && <> of {lim}</>}.</>;
+  } else if (s.state === 'exit') {
+    text = <>Exit window <b>{validWindow(s.valid_from, s.valid_until)}</b>.</>;
+  } else {
+    text = <>Re-checked at the close at <b>{clock(s.valid_until)} {tz}</b>.</>;
+  }
+  return <div className={`sg-valid ${s.state}${s.state === 'holding' && !s.late_entry_ok ? ' late' : ''}`}><Icon name="schedule" /><span>{text}</span></div>;
+}
+
 function SignalTicket({ s, onOpen, now }: { s: Signal; onOpen: () => void; now: number }) {
   const dir = s.state === 'exit' ? 'exit' : s.direction === 'short' ? 'short' : 'long';
   return (
@@ -193,13 +216,14 @@ function SignalTicket({ s, onOpen, now }: { s: Signal; onOpen: () => void; now: 
       </div>
       <div className="sg-action"><Icon name={dir === 'exit' ? 'logout' : dir === 'short' ? 'south_east' : 'north_east'} />{s.action}</div>
       <p className="sg-instruction">{s.instruction}</p>
+      <Validity s={s} />
       <Levels s={s} />
       <div className="sg-scores">
         <ConfidenceMeter c={s.confidence} />
         <Accuracy a={s.accuracy} />
       </div>
       <div className="sg-ticket-foot t-small muted">
-        <span><Icon name="schedule" />{s.state === 'entry' ? `Valid until the next close, ${until(s.next_decision, now)}` : `Next check ${until(s.next_decision, now)}`}</span>
+        <span><Icon name="update" />Next check {until(s.next_decision, now)}</span>
         <span className="open">Details<Icon name="chevron_right" /></span>
       </div>
     </button>
@@ -287,6 +311,7 @@ function SignalSheet({ s, onClose, now }: { s: Signal | null; onClose: () => voi
           <section className={`sg-hero ${t.state === 'exit' ? 'exit' : t.direction || 'long'}`}>
             <div className="sg-action big"><Icon name={t.state === 'exit' ? 'logout' : t.direction === 'short' ? 'south_east' : 'north_east'} />{t.action}</div>
             <p className="sg-instruction">{t.instruction}</p>
+            <Validity s={t} />
             <Levels s={t} />
             <div className="sg-scores">
               <ConfidenceMeter c={t.confidence} big />
@@ -427,6 +452,17 @@ export function Sigen({ route, go, now }: { route: Extract<Route, { page: 'sigen
   }
   if (!status.terms.accepted) return <TermsGate terms={status.terms_text} onAccepted={loadStatus} />;
 
+  const tabs = (
+    <div className="sg-tabs">
+      <Segmented<'live' | 'history'> label="SiGen view" value={route.view === 'history' ? 'history' : 'live'}
+        onChange={v => go(v === 'history' ? { page: 'sigen', view: 'history' } : { page: 'sigen', market })}
+        options={[{ value: 'live', label: 'Live signals' }, { value: 'history', label: 'Signal history' }]} />
+    </div>
+  );
+  if (route.view === 'history') {
+    return <div className="grid" style={{ gap: 16 }}>{tabs}<SigenHistory route={route} go={go} now={now} /></div>;
+  }
+
   const scan = status.scan;
   const running = scan.state === 'running';
   const startScan = async () => {
@@ -445,6 +481,7 @@ export function Sigen({ route, go, now }: { route: Extract<Route, { page: 'sigen
 
   return (
     <div className="grid" style={{ gap: 16 }}>
+      {tabs}
       <section className="panel sg-bar">
         <Segmented<SigenMarket> label="Market" value={market} onChange={m => go({ page: 'sigen', market: m })}
           options={[{ value: 'futures', label: 'Futures' }, { value: 'spot', label: 'Spot' }]} />
@@ -491,7 +528,7 @@ export function Sigen({ route, go, now }: { route: Extract<Route, { page: 'sigen
 
           {armed.length > 0 && (
             <section className="panel">
-              <div className="panel-head"><div><h3>Waiting for a trigger <span className="count num">{armed.length}</span></h3><div className="sub">Each becomes a signal if a 4h candle closes beyond its entry trigger. Closest first.</div></div></div>
+              <div className="panel-head"><div><h3>Waiting for a trigger <span className="count num">{armed.length}</span></h3><div className="sub">Each becomes a signal if the 4h candle closing {armed[0] ? `${clock(armed[0].valid_until)} ${tzName(new Date(armed[0].valid_until))}` : 'next'} ends beyond its trigger. Closest first.</div></div></div>
               <ArmedTable rows={armed} onOpen={open} selected={route.coin} />
             </section>
           )}

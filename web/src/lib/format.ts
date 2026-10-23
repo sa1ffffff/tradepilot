@@ -96,3 +96,28 @@ export function strategyName(label: string): string {
   };
   return names[n] || n;
 }
+
+/** The viewer's time-zone abbreviation, e.g. "PKT" or "GMT+5". */
+export function tzName(at = new Date()): string {
+  const part = new Intl.DateTimeFormat([], { timeZoneName: 'short' }).formatToParts(at).find(p => p.type === 'timeZoneName');
+  return part?.value || '';
+}
+
+/** A clock time in the viewer's zone, with the day when it isn't today: "9:00 PM", "Tomorrow 1:00 AM". */
+export function clock(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day = (o: number) => { const x = new Date(); x.setDate(x.getDate() + o); return x.toDateString(); };
+  if (d.toDateString() === day(0)) return t;
+  if (d.toDateString() === day(1)) return `Tomorrow ${t}`;
+  if (d.toDateString() === day(-1)) return `Yesterday ${t}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${t}`;
+}
+
+/** "5:00 PM – 9:00 PM PKT" in the viewer's zone. */
+export function validWindow(from: string | null | undefined, until: string | null | undefined): string {
+  const end = from && until && new Date(from).toDateString() === new Date(until).toDateString()
+    ? new Date(until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : clock(until);
+  return `${clock(from)} – ${end} ${tzName(until ? new Date(until) : new Date())}`.trim();
+}
