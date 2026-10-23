@@ -1,0 +1,24 @@
+{
+  "symbol": "ETH/USDT:USDT",
+  "timeframe": "4h",
+  "name": "donchian_ensemble",
+  "params": {
+    "max_n": 360,
+    "thr": 0.34,
+    "lo": 0.0
+  },
+  "stop_atr": 3.0,
+  "tp_r": null,
+  "shorts": true,
+  "evidence": {
+    "trades": 104,
+    "win_rate_pct": 31.7,
+    "profit_factor": 1.43,
+    "total_return_pct": 40.44,
+    "max_drawdown_pct": -20.71,
+    "folds_positive": 3,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.020%, taker 0.050% + 2 bps slippage, 54% assumed maker fills; expected cost 0.043%/side normal, 0.070% on stops, 0.086% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-23T11:23+00:00"
+}

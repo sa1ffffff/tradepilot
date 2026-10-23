@@ -1,0 +1,23 @@
+{
+  "symbol": "BTC/USDT:USDT",
+  "timeframe": "4h",
+  "name": "tsmom",
+  "params": {
+    "lookback": 84,
+    "z": 0.5
+  },
+  "stop_atr": 3.0,
+  "tp_r": null,
+  "shorts": false,
+  "evidence": {
+    "trades": 36,
+    "win_rate_pct": 47.2,
+    "profit_factor": 1.69,
+    "total_return_pct": 27.06,
+    "max_drawdown_pct": -14.57,
+    "folds_positive": 3,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.020%, taker 0.050% + 2 bps slippage, 54% assumed maker fills; expected cost 0.043%/side normal, 0.070% on stops, 0.086% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-23T11:23+00:00"
+}

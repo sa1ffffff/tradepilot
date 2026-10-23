@@ -1,0 +1,23 @@
+{
+  "symbol": "BTC/USDT:USDT",
+  "timeframe": "4h",
+  "name": "ema_cross",
+  "params": {
+    "fast": 9,
+    "slow": 50
+  },
+  "stop_atr": 2.0,
+  "tp_r": null,
+  "shorts": false,
+  "evidence": {
+    "trades": 76,
+    "win_rate_pct": 32.9,
+    "profit_factor": 1.4,
+    "total_return_pct": 35.84,
+    "max_drawdown_pct": -28.12,
+    "folds_positive": 3,
+    "verdict": "CANDIDATE"
+  },
+  "costs": "Execution maker: maker 0.020%, taker 0.050% + 2 bps slippage, 54% assumed maker fills; expected cost 0.043%/side normal, 0.070% on stops, 0.086% round trip; entries skipped when costs exceed 20% of the risk",
+  "researched": "2026-10-23T11:23+00:00"
+}
