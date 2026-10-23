@@ -38,8 +38,9 @@ class Trade:
 
 
 def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: int | None = None,
-             equity: float | None = None) -> tuple[list[Trade], list[float], float]:
-    """Run over bars [start, end) of a frame produced by strategies.signals()."""
+             equity: float | None = None, open_out: dict | None = None) -> tuple[list[Trade], list[float], float]:
+    """Run over bars [start, end) of a frame produced by strategies.signals().
+    open_out, if given, receives the position still open at the end (before it is closed as "end")."""
     end = len(sig) if end is None else end
     equity = cfg.backtest_start_equity if equity is None else equity
     t = sig["time"].to_numpy()
@@ -85,6 +86,8 @@ def simulate(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: in
         curve.append(equity + (pos["size"] * c[i] * (1 - passive) if pos else 0.0))
 
     if pos is not None:
+        if open_out is not None:
+            open_out.update(pos, dir=1, init_dist=pos["entry"] - pos["stop"])
         close(end - 1, c[end - 1], "end")
         curve[-1] = equity
     return trades, curve, equity
@@ -95,7 +98,7 @@ def run(df: pd.DataFrame, spec: StrategySpec, cfg) -> tuple[list[Trade], list[fl
 
 
 def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end: int | None = None,
-                equity: float | None = None) -> tuple[list[Trade], list[float], float]:
+                equity: float | None = None, open_out: dict | None = None) -> tuple[list[Trade], list[float], float]:
     """Long/short perpetual-swap simulation over a frame from strategies.signals_ls().
 
     Same execution rules as simulate(), plus: margin accounting (equity only
@@ -189,6 +192,8 @@ def simulate_ls(sig: pd.DataFrame, spec: StrategySpec, cfg, start: int = 0, end:
                                - pos["funding"] if pos else 0.0))
 
     if pos is not None:
+        if open_out is not None:
+            open_out.update(pos)
         close(end - 1, c[end - 1], "end")
         curve[-1] = equity
     return trades, curve, equity

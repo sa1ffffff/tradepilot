@@ -76,6 +76,7 @@ export type Route =
   | { page: 'overview' }
   | { page: 'strategies'; bot?: string; symbol?: string }
   | { page: 'trades'; trade?: string }
+  | { page: 'sigen'; market?: 'spot' | 'futures'; coin?: string }
   | { page: 'activity' }
   | { page: 'controls' };
 
@@ -83,6 +84,7 @@ export function parseHash(h: string): Route {
   const [page, a, b] = h.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   if (page === 'strategies') return { page, bot: a, symbol: b };
   if (page === 'trades') return { page, trade: a };
+  if (page === 'sigen') return { page, market: a === 'spot' || a === 'futures' ? a : undefined, coin: b };
   if (page === 'activity' || page === 'controls') return { page };
   return { page: 'overview' };
 }
@@ -90,6 +92,7 @@ export function parseHash(h: string): Route {
 export function hrefFor(r: Route): string {
   if (r.page === 'strategies' && r.bot && r.symbol) return `#/strategies/${r.bot}/${encodeURIComponent(r.symbol)}`;
   if (r.page === 'trades' && r.trade) return `#/trades/${encodeURIComponent(r.trade)}`;
+  if (r.page === 'sigen' && r.market) return `#/sigen/${r.market}${r.coin ? `/${encodeURIComponent(r.coin)}` : ''}`;
   return `#/${r.page}`;
 }
 

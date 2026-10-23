@@ -661,7 +661,7 @@ input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
   .sheet[data-open="true"] { transform: translateY(0); }
   .sheet-body { padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
   .bottom-nav {
-    display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
     background: var(--surface-1); padding: 12px 0 max(16px, env(safe-area-inset-bottom));
     box-shadow: 0 -1px 0 var(--line);
   }

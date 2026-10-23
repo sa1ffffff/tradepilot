@@ -8,11 +8,13 @@ import { Strategies } from './pages/Strategies';
 import { Trades } from './pages/Trades';
 import { Activity } from './pages/Activity';
 import { Controls } from './pages/Controls';
+import { Sigen } from './pages/Sigen';
 
 const NAV: { page: Route['page']; label: string; icon: string }[] = [
   { page: 'overview', label: 'Overview', icon: 'space_dashboard' },
   { page: 'strategies', label: 'Strategies', icon: 'insights' },
   { page: 'trades', label: 'Trades', icon: 'receipt_long' },
+  { page: 'sigen', label: 'SiGen', icon: 'radar' },
   { page: 'activity', label: 'Activity', icon: 'history' },
   { page: 'controls', label: 'Controls', icon: 'tune' }
 ];
@@ -21,6 +23,7 @@ const HEADS: Record<Route['page'], [string, string]> = {
   overview: ['Overview', 'Profit and loss, open positions, and what every strategy is looking for right now.'],
   strategies: ['Strategies', 'Each strategy on its latest closed candle: the conditions it checks, which hold, and the price that would trigger it.'],
   trades: ['Trades', 'Every closed trade. Open one to see the candles, why it entered, and how it ended.'],
+  sigen: ['SiGen', 'Buy and sell signals for the 25 largest coins. Each comes from a strategy that passed testing on that coin, with an AI estimate of how far to trust it.'],
   activity: ['Activity', 'Every order, skipped signal, stop move, start, stop and error, newest first.'],
   controls: ['Controls', 'Start and stop the bots, pause new entries, and set a daily profit target.']
 };
@@ -125,6 +128,7 @@ export default function App() {
           {route.page === 'overview' && <Overview data={data} go={go} now={now} />}
           {route.page === 'strategies' && <Strategies data={data} route={route} go={go} now={now} />}
           {route.page === 'trades' && <Trades data={data} route={route} go={go} />}
+          {route.page === 'sigen' && <Sigen route={route} go={go} now={now} />}
           {route.page === 'activity' && <Activity data={data} />}
           {route.page === 'controls' && <Controls data={data} now={now} />}
         </main>

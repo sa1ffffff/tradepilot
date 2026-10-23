@@ -465,6 +465,86 @@ def analysis_overview() -> list[dict]:
         return list(pool.map(one, strategy_slots(cfg)))
 
 
+# --- SiGen ------------------------------------------------------------------------
+# Signals are for trading anywhere, so they read the real OKX market (public data),
+# not the demo prices the bots trade at.
+_prod_client = None
+
+
+def prod_client(cfg: Config):
+    global _prod_client
+    with _client_lock:
+        if _prod_client is None:
+            import ccxt
+            _prod_client = ccxt.okx({"enableRateLimit": True, "hostname": cfg.okx_hostname, "timeout": 10000})
+        return _prod_client
+
+
+def sigen_fetch(symbol: str, tf: str, bars: int):
+    from bot.data import fetch_closed
+    return cached(("prod-candles", symbol, tf, bars), 240,
+                  lambda: fetch_closed(prod_client(Config()), symbol, tf, bars))
+
+
+def sigen_status() -> dict:
+    from bot import sigen
+    prog = sigen.read(HERE, "progress.json") or {"state": "never"}
+    if prog.get("state") == "running" and not is_held(sigen.path(HERE, "scan")):
+        prog = {**prog, "state": "error", "error": "The scan stopped before it finished. "
+                + " ".join(tail(os.path.join(HERE, "logs", "sigen_scan.out"), 1))}
+    scan = sigen.read(HERE, "scan.json")
+    return {"terms": sigen.acceptance(HERE), "terms_text": sigen.TERMS, "scan": prog,
+            "generated_at": scan.get("generated_at"), "coins": scan.get("coins", [])}
+
+
+def sigen_signals(market: str) -> dict:
+    """Cached per 4h candle (and per scan), so every page load doesn't refetch 25 coins."""
+    from bot import sigen
+    if market not in sigen.MARKETS:
+        raise LookupError(f"unknown market {market}")
+    scan_file = sigen.path(HERE, "scan.json")
+    mtime = os.path.getmtime(scan_file) if os.path.exists(scan_file) else 0
+    bar = int(time.time() // (4 * 3600))
+    return cached(("sigen", market, bar, mtime), 4 * 3600,
+                  lambda: sigen.live(market, HERE, fetch=sigen_fetch))
+
+
+def sigen_chart(market: str, coin: str) -> dict:
+    from bot import sigen
+    from bot.explain import analyse
+    from bot.strategies import StrategySpec, warmup_bars
+    res = next((r for r in sigen.read(HERE, "scan.json").get("results", [])
+                if r["market"] == market and r["coin"] == coin and r.get("chosen")), None)
+    if res is None:
+        raise LookupError(f"no SiGen strategy for {coin} {market}")
+    spec = StrategySpec.from_dict(res["chosen"]["spec"])
+    df = sigen_fetch(res["symbol"], sigen.TIMEFRAME, warmup_bars(spec) + 300)
+    a = analyse(df, spec, sigen.TIMEFRAME, bars=160)
+    a.update({"bot": market, "symbol": res["symbol"], "timeframe": sigen.TIMEFRAME, "label": spec.label(),
+              "fills": []})
+    return a
+
+
+def start_sigen_scan() -> dict:
+    from bot import sigen
+    if is_held(sigen.path(HERE, "scan")):
+        return {"ok": True, "message": "A scan is already running."}
+    os.makedirs(os.path.join(HERE, "logs"), exist_ok=True)
+    out = open(os.path.join(HERE, "logs", "sigen_scan.out"), "a", encoding="utf-8")
+    out.write(f"\n--- scan started from the console {datetime.now(timezone.utc).isoformat()} ---\n")
+    out.flush()
+    flags = 0
+    if os.name == "nt":
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW
+    subprocess.Popen([sys.executable, "-m", "bot.sigen", "scan"], cwd=HERE, stdout=out, stderr=subprocess.STDOUT,
+                     stdin=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+    for _ in range(40):
+        time.sleep(0.25)
+        if is_held(sigen.path(HERE, "scan")):
+            return {"ok": True, "message": "Scan started. It takes a few minutes."}
+    return {"ok": False, "message": "The scan didn't start. " + " ".join(tail(os.path.join(HERE, "logs", "sigen_scan.out"), 2))}
+
+
 # --- controls -----------------------------------------------------------------
 def start_bot(bot: str) -> dict:
     cfg = Config()
@@ -610,6 +690,15 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/target/assess":
                 funds = q.get("funds", [None])[0]
                 return self._json(200, assess_target(float(q["usd"][0]), float(funds) if funds else None))
+            if url.path == "/api/sigen":
+                return self._json(200, sigen_status())
+            if url.path in ("/api/sigen/signals", "/api/sigen/chart"):
+                from bot import sigen
+                if not sigen.acceptance(HERE)["accepted"]:  # signals only after the declaration
+                    return self._json(403, {"error": "accept the SiGen terms first"})
+                if url.path == "/api/sigen/signals":
+                    return self._json(200, sigen_signals(q["market"][0]))
+                return self._json(200, sigen_chart(q["market"][0], q["coin"][0]))
         except LookupError as e:
             return self._json(404, {"error": str(e)})
         except Exception as e:  # show the problem on the page instead of a blank screen
@@ -648,6 +737,16 @@ class Handler(BaseHTTPRequestHandler):
                 control.set_target(usd, bool(body.get("close_open")), HERE)
                 return self._json(200, {"ok": True, "message": f"Daily target set to ${usd:,.2f}." if usd
                                         else "Daily target cleared."})
+            if url.path == "/api/sigen/accept":
+                from bot import sigen
+                try:
+                    sigen.accept(str(body.get("name", "")), list(body.get("statements") or []),
+                                 str(body.get("version", "")), HERE)
+                except ValueError as e:
+                    return self._json(400, {"error": str(e)})
+                return self._json(200, {"ok": True, "message": "Terms accepted. Welcome to SiGen."})
+            if url.path == "/api/sigen/scan":
+                return self._json(200, start_sigen_scan())
         except Exception as e:
             return self._json(500, {"error": repr(e)[:300]})
         self._json(404, {"error": "unknown action"})

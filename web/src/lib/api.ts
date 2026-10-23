@@ -233,3 +233,87 @@ export const api = {
   closePosition: (bot: BotName, symbol: string) => post('/api/positions/close', { bot, symbol }),
   setTarget: (usd: number | null, close_open: boolean) => post('/api/target', { daily_target_usd: usd, close_open })
 };
+
+// --- SiGen -----------------------------------------------------------------------
+export type SigenMarket = 'spot' | 'futures';
+export type SignalState = 'entry' | 'exit' | 'holding' | 'armed' | 'watching';
+
+export interface SigenTerms {
+  version: string;
+  title: string;
+  sections: [string, string][];
+  statements: [string, string][];
+}
+
+export interface SigenStatus {
+  terms: { accepted: boolean; version: string; accepted_at: string | null; name: string | null };
+  terms_text: SigenTerms;
+  scan: { state: 'never' | 'running' | 'done' | 'error'; step?: string; done?: number; total?: number; coin?: string;
+    started_at?: string; finished_at?: string; error?: string };
+  generated_at: string | null;
+  coins: string[];
+}
+
+export interface Signal {
+  id: string;
+  coin: string;
+  symbol: string;
+  market: SigenMarket;
+  timeframe: string;
+  strategy: string;
+  label: string;
+  rule: string;
+  state: SignalState;
+  direction: 'long' | 'short' | null;
+  action: string;
+  instruction: string;
+  price: number;
+  bar_time: string;
+  next_decision: string;
+  signal_time: string | null;
+  entry: number | null;
+  stop: number | null;
+  initial_stop?: number;
+  target: number | null;
+  trail: string | null;
+  exit_rule: string | null;
+  exit_price?: number;
+  exit_reason?: string;
+  result_r?: number;
+  r_now?: number;
+  headline: string;
+  checks: Check[];
+  checks_at: 'now' | 'entry';
+  trigger: Partial<Record<'long' | 'short', string>>;
+  confidence: { score: number; label: 'High' | 'Medium' | 'Low';
+    parts: { edge_certainty: number; folds_positive: number; ai_setup: number; ai_weight: number; unusual_market: boolean } };
+  accuracy: { win_rate_pct: number; expected_win_rate_pct: number; trades: number; profit_factor: number; avg_win_r: number;
+    avg_loss_r: number; folds_positive: number; return_pct: number; max_drawdown_pct: number };
+  ai: { p_win: number | null; di: number | null; unusual: boolean; base_rate: number; holdout_auc: number;
+    drivers?: { feature: string; effect: 'for' | 'against'; weight: number }[] };
+}
+
+export interface SigenSignals {
+  market: SigenMarket;
+  scanned: boolean;
+  generated_at?: string;
+  coins?: string[];
+  universe_source?: string;
+  signals: Signal[];
+  untested: { coin: string; reason: string; closest: { strategy: string; profit_factor: number; trades: number; folds_positive: number } | null }[];
+  errors?: { coin: string; error: string }[];
+  model?: {
+    trained_on: number; coins: number; base_rate: number; di_threshold: number; trained_at: string;
+    importance: Record<string, number>;
+    holdout: { trades: number; auc: number; auc_pooled: number; brier_skill: number; from: string; to: string;
+      calibration: { predicted: number; actual: number; trades: number }[] };
+  };
+}
+
+export const sigenApi = {
+  status: () => get<SigenStatus>('/api/sigen'),
+  signals: (market: SigenMarket) => get<SigenSignals>(`/api/sigen/signals?market=${market}`),
+  chart: (market: SigenMarket, coin: string) => get<Analysis>(`/api/sigen/chart?market=${market}&coin=${encodeURIComponent(coin)}`),
+  accept: (name: string, statements: string[], version: string) => post('/api/sigen/accept', { name, statements, version }),
+  scan: () => post('/api/sigen/scan')
+};

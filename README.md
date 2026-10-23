@@ -268,3 +268,28 @@ fell together still fall together. It also shows how each strategy's trades have
 (stop, target, exit signal). It only reads cached candles; it never touches the account,
 and the bots don't import it. It doesn't model the margin cap or daily loss limit, and the
 strategies were picked on this same data, so treat the numbers as optimistic.
+
+## SiGen (signals, read-only)
+
+```bash
+python -m bot.sigen scan       # test every strategy on the top 25 coins and train the AI (a few minutes)
+python -m bot.sigen signals    # print the current spot and futures signals
+```
+
+SiGen turns the strategy research into signals you can act on by hand, on spot or futures.
+It takes the 25 largest coins by market cap (CoinGecko) that OKX lists as both spot and
+USDT perpetual. Each coin goes through the same 3-year walk-forward test that `research.py`
+uses, at 4h, and gets signals only from a strategy that passes the bots' gate. A logistic
+model, after FreqAI's ideas (no FreqAI code: it is GPL), learns from every out-of-sample
+trade which entry conditions came before winners. It is scored on the newest 30% of trades
+it never trained on, and its weight in the confidence score follows that score. A
+dissimilarity index flags markets unlike its training data.
+
+On each closed 4h candle the console's **SiGen** page shows each coin's action (buy or short
+now, hold, exit now, or the close that would trigger an entry), with the entry, stop-loss,
+take-profit or exit rule, a 0–100 confidence and the historical win rate. Open a signal for
+its chart and the reasons behind each number. Prices come from the real OKX market (public
+data), not the demo. Before any signal is shown, the user accepts a one-time terms and risk
+declaration, signed with their name; it is stored in `data/sigen/terms_acceptance.json`, and
+changing the terms asks again. SiGen never reads the API keys or places orders. The
+**Rescan** button reruns the scan; outputs live in `data/sigen/` (not committed).

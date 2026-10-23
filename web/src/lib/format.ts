@@ -4,7 +4,8 @@ export const market = (symbol: string) => (symbol.includes(':') ? 'Perpetual' : 
 export function price(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '—';
   const a = Math.abs(v);
-  const digits = a >= 1000 ? 2 : a >= 100 ? 2 : a >= 1 ? 4 : 5;
+  // tiny prices (PEPE, SHIB) keep four significant digits
+  const digits = a >= 100 ? 2 : a >= 1 ? 4 : a >= 0.01 || a === 0 ? 5 : Math.ceil(-Math.log10(a)) + 3;
   return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 

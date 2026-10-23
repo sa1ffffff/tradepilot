@@ -25,8 +25,9 @@ def fetch_closed(client, symbol: str, timeframe: str, bars: int | None = None,
     rows: dict[int, list] = {}
     while since < now:
         batch = client.fetch_ohlcv(symbol, timeframe, since=since, limit=300)
-        if not batch:
-            break
+        if not batch:  # nothing yet: before the coin was listed, so step forward
+            since += 300 * tf_ms
+            continue
         for r in batch:
             rows[r[0]] = r
         nxt = batch[-1][0] + tf_ms

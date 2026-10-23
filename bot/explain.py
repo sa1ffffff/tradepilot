@@ -19,6 +19,8 @@ TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h":
 
 def fmt(v: float) -> str:
     a = abs(v)
+    if 0 < a < 0.01:  # PEPE, SHIB: keep four significant digits, no scientific notation
+        return f"{v:.{int(np.ceil(-np.log10(a))) + 3}f}"
     return f"{v:,.2f}" if a >= 100 else f"{v:.4f}" if a >= 1 else f"{v:.5f}"
 
 
