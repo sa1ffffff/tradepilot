@@ -89,7 +89,9 @@ export function strategyName(label: string): string {
   const names: Record<string, string> = {
     supertrend: 'Supertrend', donchian_breakout: 'Donchian breakout', breakout_htf: 'HTF breakout',
     trend_pullback: 'Trend pullback', pullback_htf: 'HTF pullback', bollinger_reversion: 'Bollinger reversion',
-    ema_cross: 'EMA cross', ema_cross_adx: 'EMA cross + ADX', chandelier_trend: 'Chandelier trend'
+    ema_cross: 'EMA cross', ema_cross_adx: 'EMA cross + ADX', chandelier_trend: 'Chandelier trend',
+    donchian_ensemble: 'Trend ensemble', tsmom: 'Time-series momentum', rsi2_reversion: 'RSI(2) pullback',
+    shock_reversal: 'Overreaction fade'
   };
   return names[n] || n;
 }

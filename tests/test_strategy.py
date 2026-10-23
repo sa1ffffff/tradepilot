@@ -56,3 +56,35 @@ def test_spec_roundtrip_and_unknown_name():
     assert StrategySpec.from_dict(spec.to_dict()) == spec
     with pytest.raises(ValueError):
         StrategySpec.from_dict({"name": "nope"})
+
+
+def test_ensemble_votes_follow_breakouts_and_midpoint_stops():
+    import pandas as pd
+    from bot.strategies import donchian_votes
+    up = list(range(100, 140))                 # steady rise: the 5-bar breakout is on
+    down = [139, 130, 125, 119]                # 119 is under the 5-bar midpoint
+    on = donchian_votes(pd.Series(up + down, dtype=float), 5)
+    assert on[len(up) - 1] and not on[-1]
+
+
+def test_new_strategies_agree_between_live_window_and_full_history():
+    """The live bot fetches only warmup_bars(spec) candles; its signal on the last bar
+    must equal the one computed on the whole history (the path-dependent ensemble too)."""
+    import numpy as np
+    import pandas as pd
+    from bot.strategies import STRATEGIES, StrategySpec, signals_ls, warmup_bars
+    rng = np.random.default_rng(11)
+    close = 100 * np.exp(np.cumsum(rng.normal(0.0004, 0.012, 3000)))
+    df = pd.DataFrame({"time": pd.date_range("2024-01-01", periods=3000, freq="4h", tz="UTC"),
+                       "open": close, "high": close * 1.003, "low": close * 0.997, "close": close,
+                       "volume": np.ones(3000)})
+    for name in ("donchian_ensemble", "tsmom", "rsi2_reversion", "shock_reversal"):
+        spec = StrategySpec(name, dict(STRATEGIES[name].defaults), 3.0, None, True)
+        full = signals_ls(df, spec)
+        w = warmup_bars(spec)
+        mismatches = 0
+        for end in range(w + 50, 3000, 37):
+            live = signals_ls(df.iloc[end - w:end].reset_index(drop=True), spec).iloc[-1]
+            ref = full.iloc[end - 1]
+            mismatches += any(bool(live[c]) != bool(ref[c]) for c in ("entry", "exit", "short_entry", "short_exit"))
+        assert mismatches == 0, (name, mismatches)

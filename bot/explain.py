@@ -8,6 +8,7 @@ trick signals_ls uses), and their price levels are mapped back to real prices.
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from bot import indicators as ind
@@ -206,11 +207,93 @@ def _x_chandelier(sd: Side, p: dict):
     return checks, trig, f"a close {sd.below} the chandelier stop {fmt(ch)} ({sd.dist(ch)})"
 
 
+def _x_donchian_ensemble(sd: Side, p: dict):
+    from bot.strategies import ENSEMBLE_LOOKBACKS, donchian_votes
+    ns = [n for n in ENSEMBLE_LOOKBACKS if n <= p["max_n"]]
+    close = sd.d["close"]
+    on = {n: bool(donchian_votes(close, n)[-1]) for n in ns}
+    k, m = sum(on.values()), len(ns)
+    prev = sum(bool(donchian_votes(close.iloc[:-1], n)[-1]) for n in ns)
+    need = int(np.ceil(p["thr"] * m - 1e-9))
+    fired = k >= need and prev < need
+    off = [n for n in ns if not on[n]]
+    # the cheapest breakout still missing: the lowest prior n-bar high close among the off lookbacks
+    highs = {n: float(close.rolling(n).max().iloc[-1]) for n in off}
+    checks = [{"label": "Trend votes", "ok": k >= need,
+               "detail": f"{k} of {m} lookbacks in a trend (needs {need}); on: "
+                         + (", ".join(str(n) for n in ns if on[n]) or "none")}]
+    if fired:
+        trigger = "conditions met on this bar"
+    elif k >= need:
+        trigger = f"the votes to drop to {int(p['lo'] * m)} or fewer and build back to {need}"
+    elif need - k == 1 and highs:
+        n_best = min(highs, key=highs.get)
+        lvl = sd.px(highs[n_best])
+        checks[0]["level"] = lvl
+        trigger = f"a close {sd.above} {fmt(lvl)} ({sd.dist(lvl)}), the {n_best}-bar breakout"
+    else:
+        trigger = f"{need - k} more lookbacks breaking out"
+    return checks, trigger, f"{int(p['lo'] * m) or 'no'} lookbacks left in a trend"
+
+
+def _x_tsmom(sd: Side, p: dict):
+    L = p["lookback"]
+    close = sd.d["close"]
+    r = np.log(close).diff()
+    vol = float(r.rolling(L * 2).std().iloc[-1] * np.sqrt(L))
+    ret = float(np.log(close.iloc[-1] / close.iloc[-1 - L]))
+    z_now, z_prev = ret / vol, float(np.log(close.iloc[-2] / close.iloc[-2 - L])) / vol
+    fired = z_prev <= p["z"] < z_now
+    check = {"label": "Momentum", "ok": fired,
+             "detail": f"{L}-bar return {ret * 100:+.1f}% = {z_now:+.2f}σ (enters on a cross above {p['z']:g}σ)"}
+    if fired:
+        trigger = "conditions met on this bar"
+    elif z_now > p["z"]:
+        trigger = f"momentum to fall back under {p['z']:g}σ and cross up again"
+    else:
+        # the next close that would put the lookback return at z
+        lvl = sd.px(float(close.iloc[-L]) * np.exp(p["z"] * vol))
+        check["level"] = lvl
+        trigger = f"a close {sd.above} {fmt(lvl)} ({sd.dist(lvl)}), lifting momentum to {p['z']:g}σ"
+    return [check], trigger, f"the {L}-bar return turning negative (now {ret * 100:+.1f}%)"
+
+
+def _x_rsi2(sd: Side, p: dict):
+    r2 = _last(ind.rsi(sd.d["close"], 2))
+    name = "RSI(2)" if sd.dir > 0 else "RSI(2) of the mirrored chart"
+    checks = [*_trend_check(sd, p["trend"]),
+              {"label": "Oversold" if sd.dir > 0 else "Overbought", "ok": r2 < p["lo"],
+               "detail": f"{name} {r2:.1f} (needs < {p['lo']:g})"}]
+    ok = all(c["ok"] for c in checks)
+    sma5 = sd.px(float(sd.d["close"].rolling(5).mean().iloc[-1]))
+    return checks, ("conditions met on this bar" if ok else f"a sharp pullback: {name} under {p['lo']:g} (now {r2:.1f})"), \
+        f"a close {sd.above} its 5-bar average {fmt(sma5)}"
+
+
+def _x_shock(sd: Side, p: dict):
+    r = sd.d["close"].pct_change()
+    s = float(r.rolling(200).std().shift(1).iloc[-1])
+    move = float(r.iloc[-1])
+    fired = move < -p["k"] * s
+    lvl = sd.px(float(sd.d["close"].iloc[-1]) * (1 - p["k"] * float(r.rolling(200).std().iloc[-1])))
+    check = {"label": "Overreaction", "ok": fired,
+             "detail": f"Last bar {'fell' if sd.dir > 0 else 'rose'} {abs(move) * 100:.2f}% = "
+                       f"{abs(move) / s:.1f}σ (needs > {p['k']:g}σ)"}
+    if not fired:
+        check["level"] = lvl
+    e10 = sd.px(_last(ind.ema(sd.d["close"], 10)))
+    return [check], ("conditions met on this bar" if fired else
+                     f"a bar closing {sd.below} {fmt(lvl)} ({sd.dist(lvl)}), a {p['k']:g}σ move"), \
+        f"a close back {sd.above} the 10-bar EMA {fmt(e10)}"
+
+
 EXPLAINERS = {
     "supertrend": _x_supertrend, "donchian_breakout": _x_donchian, "breakout_htf": _x_breakout_htf,
     "trend_pullback": _x_trend_pullback, "pullback_htf": _x_pullback_htf,
     "bollinger_reversion": _x_bollinger, "ema_cross": _x_ema_cross, "ema_cross_adx": _x_ema_cross_adx,
     "chandelier_trend": _x_chandelier,
+    "donchian_ensemble": _x_donchian_ensemble, "tsmom": _x_tsmom, "rsi2_reversion": _x_rsi2,
+    "shock_reversal": _x_shock,
 }
 
 RULES = {
@@ -228,6 +311,14 @@ RULES = {
     "ema_cross": "Enter when EMA {fast} crosses EMA {slow}. Exit on the cross back.",
     "ema_cross_adx": "Enter when EMA {fast} crosses EMA {slow} with ADX > {adx_min}. Exit on the cross back.",
     "chandelier_trend": "Enter when price reclaims EMA {trend} with ADX > 20. Exit on the chandelier stop (22, {mult} ATR).",
+    "donchian_ensemble": "Nine Donchian breakouts on closes (lookbacks 5 to {max_n} bars), each with a midpoint trailing stop "
+                         "(Zarattini, Pagani & Barbon, 2025). Enter when the share in a trend crosses {thr}; exit at {lo} or less.",
+    "tsmom": "Time-series momentum: enter when the {lookback}-bar return crosses {z} standard deviations; "
+             "exit when it turns negative.",
+    "rsi2_reversion": "Connors RSI(2) pullback: with price above EMA {trend}, enter when 2-period RSI drops under {lo}; "
+                      "exit on a close above the 5-bar average.",
+    "shock_reversal": "Overreaction fade: enter after a bar moving more than {k} standard deviations against the side; "
+                      "exit when price closes back past its 10-bar EMA.",
 }
 
 
@@ -270,6 +361,21 @@ def overlays(df: pd.DataFrame, spec: StrategySpec) -> tuple[list[dict], list[dic
         add("Chandelier stop", ind.chandelier_long(df, 22, p["mult"]), "band")
     elif n == "pullback_htf":
         add("EMA 50", ind.ema(df["close"], 50), "fast")
+    elif n == "donchian_ensemble":
+        from bot.strategies import ensemble_score
+        add("20-bar high close", df["close"].rolling(20).max().shift(1), "band")
+        panes.append({"name": "Trend votes %", "levels": [p["thr"] * 100, p["lo"] * 100],
+                      "values": ensemble_score(df["close"], p["max_n"]) * 100})
+    elif n == "tsmom":
+        r = np.log(df["close"]).diff()
+        L = p["lookback"]
+        panes.append({"name": f"Momentum {L} (σ)", "levels": [p["z"], 0],
+                      "values": np.log(df["close"] / df["close"].shift(L)) / (r.rolling(L * 2).std() * np.sqrt(L))})
+    elif n == "rsi2_reversion":
+        add("5-bar average", df["close"].rolling(5).mean(), "mid")
+        panes.append({"name": "RSI 2", "levels": [p["lo"], 100 - p["lo"]], "values": ind.rsi(df["close"], 2)})
+    elif n == "shock_reversal":
+        add("EMA 10", ind.ema(df["close"], 10), "fast")
     if n in ("trend_pullback", "pullback_htf"):
         levels = [p["rsi_entry"], p.get("rsi_exit", 75)]
         panes.append({"name": "RSI 14", "levels": levels, "values": ind.rsi(df["close"], 14)})

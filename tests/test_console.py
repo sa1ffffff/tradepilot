@@ -118,7 +118,8 @@ def test_every_strategy_explains_itself(name):
     assert pd.Timestamp(a["next_decision"]) - pd.Timestamp(a["bar_time"]) == pd.Timedelta(hours=8)
 
 
-@pytest.mark.parametrize("name", ["donchian_breakout", "supertrend", "ema_cross", "bollinger_reversion"])
+@pytest.mark.parametrize("name", ["donchian_breakout", "supertrend", "ema_cross", "bollinger_reversion",
+                                  "donchian_ensemble", "tsmom", "rsi2_reversion", "shock_reversal"])
 def test_explanation_agrees_with_the_signal(name):
     """On a bar where the strategy fired, the explainer says every check held."""
     spec = StrategySpec(name, dict(STRATEGIES[name].defaults), 2.0, None, True)

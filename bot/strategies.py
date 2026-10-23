@@ -15,6 +15,7 @@ import dataclasses
 import itertools
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from bot import indicators as ind
@@ -103,6 +104,77 @@ def _chandelier_trend(df, trend, mult):
     return entry, df["close"] < ind.chandelier_long(df, 22, mult), trend * 2
 
 
+# --- researched additions (2026-10-23) --------------------------------------
+# Each is a published idea re-implemented as plain rules. They earn a place in the
+# lineup only by passing the same walk-forward test as everything else.
+
+ENSEMBLE_LOOKBACKS = (5, 10, 20, 30, 60, 90, 150, 250, 360)
+
+
+def donchian_votes(close: pd.Series, n: int) -> np.ndarray:
+    """One lookback of the Zarattini/Pagani/Barbon (2025) ensemble: on when the close
+    breaks the prior n-bar high close; off when it falls below a trailing stop that
+    ratchets up to the midpoint of the n-bar close range."""
+    c = close.to_numpy(dtype=float)
+    hi = close.rolling(n).max().shift(1).to_numpy()
+    mid = ((close.rolling(n).max() + close.rolling(n).min()) / 2).to_numpy()
+    on = np.zeros(len(c), dtype=bool)
+    stop = np.nan
+    for i in range(len(c)):
+        if on[i - 1] if i else False:
+            stop = max(stop, mid[i]) if not np.isnan(mid[i]) else stop
+            on[i] = c[i] >= stop
+        else:
+            on[i] = bool(c[i] > hi[i]) if not np.isnan(hi[i]) else False
+            stop = mid[i] if on[i] else np.nan
+    return on
+
+
+def ensemble_score(close: pd.Series, max_n: int) -> pd.Series:
+    """Share of the ensemble's lookbacks (up to max_n bars) currently in a trend, 0..1."""
+    ns = [n for n in ENSEMBLE_LOOKBACKS if n <= max_n]
+    return pd.Series(np.mean([donchian_votes(close, n) for n in ns], axis=0), index=close.index)
+
+
+def _donchian_ensemble(df, max_n, thr, lo):
+    """Trend ensemble (Zarattini, Pagani & Barbon, "Catching Crypto Trends", 2025): nine
+    Donchian breakouts on closes with midpoint trailing stops. The paper scales exposure
+    with the share of lookbacks that are on; with one position per market we enter when
+    that share crosses `thr` and exit when it falls to `lo` or below."""
+    s = ensemble_score(df["close"], max_n)
+    return ind.crossed_above(s, thr - 1e-9), s <= lo + 1e-9, max_n
+
+
+def _tsmom(df, lookback, z):
+    """Time-series momentum (Moskowitz/Ooi/Pedersen; Liu & Tsyvinski find 1-8 weeks in
+    crypto): enter when the lookback return, in units of its own volatility, crosses z;
+    exit when the lookback return turns negative."""
+    r = np.log(df["close"]).diff()
+    ret = np.log(df["close"] / df["close"].shift(lookback))
+    vol = r.rolling(lookback * 2).std() * np.sqrt(lookback)
+    zs = ret / vol
+    return ind.crossed_above(zs, z), ret < 0, lookback * 2
+
+
+def _rsi2_reversion(df, lo, trend):
+    """Connors RSI(2) pullback: in an uptrend (close above EMA trend), buy when 2-period
+    RSI drops below lo; sell when the close gets back above its 5-bar average."""
+    r2 = ind.rsi(df["close"], 2)
+    entry = (r2 < lo) & (df["close"] > ind.ema(df["close"], trend))
+    exit_ = df["close"] > df["close"].rolling(5).mean()
+    return entry, exit_, trend * 3
+
+
+def _shock_reversal(df, k):
+    """Short-horizon overreaction (De Nicola: Bitcoin 1-4h returns are negatively
+    autocorrelated, more so after big moves): buy a bar that falls more than k standard
+    deviations; exit when the close recovers above its 10-bar EMA."""
+    r = df["close"].pct_change()
+    sd = r.rolling(200).std().shift(1)
+    entry = r < -k * sd
+    return entry, df["close"] > ind.ema(df["close"], 10), 200
+
+
 @dataclass(frozen=True)
 class StrategyDef:
     fn: object
@@ -156,6 +228,32 @@ STRATEGIES: dict[str, StrategyDef] = {
         _chandelier_trend,
         {"trend": [100, 200], "mult": [2.5, 3.5]},
         {"trend": 200, "mult": 3.0},
+    ),
+    # trend systems ride long moves: wide stops, no fixed target
+    "donchian_ensemble": StrategyDef(
+        _donchian_ensemble,
+        {"max_n": [90, 360], "thr": [0.34, 0.67], "lo": [0.0, 0.2]},
+        {"max_n": 360, "thr": 0.34, "lo": 0.0},
+        {"stop_atr": [3.0, 5.0], "tp_r": [None]},
+    ),
+    "tsmom": StrategyDef(
+        _tsmom,
+        {"lookback": [42, 84, 168], "z": [0.5, 1.0]},
+        {"lookback": 84, "z": 0.5},
+        {"stop_atr": [3.0, 5.0], "tp_r": [None]},
+    ),
+    # reversion systems take quick profits
+    "rsi2_reversion": StrategyDef(
+        _rsi2_reversion,
+        {"lo": [5, 10], "trend": [200]},
+        {"lo": 10, "trend": 200},
+        {"stop_atr": [2.0, 3.0], "tp_r": [None, 1.5]},
+    ),
+    "shock_reversal": StrategyDef(
+        _shock_reversal,
+        {"k": [2.5, 3.5]},
+        {"k": 3.0},
+        {"stop_atr": [2.0, 3.0], "tp_r": [None, 1.5]},
     ),
 }
 
