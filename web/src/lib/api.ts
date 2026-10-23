@@ -236,7 +236,22 @@ export const api = {
 
 // --- SiGen -----------------------------------------------------------------------
 export type SigenMarket = 'spot' | 'futures';
-export type SignalState = 'entry' | 'exit' | 'holding' | 'armed' | 'watching';
+export type SignalState = 'entry' | 'exit' | 'holding' | 'armed' | 'held' | 'watching';
+
+export interface RegimeRule { measure: string; side: 'below' | 'above'; threshold: number; why?: string }
+export interface SignalRegime {
+  er_30: number | null; er_60: number | null; chop_14: number | null; adx_14: number | null;
+  trend_strategy: boolean; choppy: boolean; mode: 'on' | 'shadow' | 'none'; rule: RegimeRule | null;
+  held_back: boolean; would_hold: boolean;
+}
+export interface RegimeStats { trades: number; avg_r: number | null; total_r: number; win_rate_pct: number | null; profit_factor: number | null; max_dd_r: number }
+export interface RegimeEvidence {
+  enabled: boolean; reason: string; rule: (RegimeRule & { gain_r?: number; kept_pct?: number }) | null; shadow: RegimeRule | null;
+  trades: number; trend_trades: number; from: string; to: string; calibrate_until: string; generated_at: string;
+  checks?: Record<string, boolean>;
+  validation?: { all: RegimeStats; kept: RegimeStats; held_back: RegimeStats; gain_r: number; luck_beaten_pct: number };
+  replay?: { signals: number; all: RegimeStats; kept: RegimeStats; held_back: RegimeStats };
+}
 
 export interface SigenTerms {
   version: string;
@@ -252,6 +267,7 @@ export interface SigenStatus {
     started_at?: string; finished_at?: string; error?: string };
   generated_at: string | null;
   coins: string[];
+  regime: RegimeEvidence | null;
 }
 
 export interface Signal {
@@ -284,6 +300,7 @@ export interface Signal {
   headline: string;
   checks: Check[];
   checks_at: 'now' | 'entry';
+  regime?: SignalRegime;
   valid_from: string;
   valid_until: string;
   chase_limit?: number;
@@ -359,6 +376,7 @@ export interface JournalRow {
   exit_rule: string | null;
   instruction: string;
   confidence: { score: number; label: string };
+  regime?: SignalRegime;
   tested: { win_rate_pct: number; expected_win_rate_pct: number; trades: number; profit_factor: number };
   recorded_at: string;
   outcome: JournalOutcome;
@@ -367,7 +385,9 @@ export interface JournalRow {
 export interface JournalSummary {
   signals: number; closed: number; open: number; won: number; lost: number; flat: number;
   win_rate_pct: number | null; tested_win_rate_pct: number | null; avg_r: number | null; total_r: number;
+  trial: { would_hold: TrialSide; kept: TrialSide; enough: boolean; needed: number };
 }
+export interface TrialSide { closed: number; avg_r: number | null; total_r: number; won: number }
 
 export interface JournalReport {
   generated_at: string;

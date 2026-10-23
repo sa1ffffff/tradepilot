@@ -446,7 +446,7 @@ def _fmt(v):
     return fmt(v)
 
 
-def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
+def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg, filt: dict | None = None) -> dict:
     """One coin's signal on its latest closed candle."""
     from bot.engine import simulate, simulate_ls
     from bot.explain import analyse, rule_text
@@ -526,6 +526,9 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
     out["ai"] = {**ai, "base_rate": model.d["base_rates"].get(spec.name, model.d["base_rate"]),
                  "holdout_auc": model.d["holdout"]["auc"]}
     out["confidence"] = confidence(chosen, ai, model.d)
+    from bot.sigen_regime import at as regime_at
+    out["regime"] = regime_at(df, i if out["state"] in ("entry", "holding", "exit") else len(df) - 1, spec.name,
+                              filt or {"mode": "none", "rule": None})
     out["accuracy"] = accuracy(chosen, model.d)
     out["accuracy"]["history_days"] = int(res.get("bars", 0) // 6)
 
@@ -565,10 +568,17 @@ def signal_for(res: dict, model: Model, df: pd.DataFrame, cfg) -> dict:
     else:
         out["action"] = "Wait"
         out["instruction"] = "No price trigger yet. " + a["headline"]
+    rg = out["regime"]
+    if rg["held_back"] and st in ("entry", "armed"):
+        rule = rg["rule"]
+        out["state"], out["action"] = "held", "Held back"
+        out["instruction"] = (f"Held back by the regime filter: {coin} is choppy ({rule['measure']} "
+                              f"{rg.get(rule['measure'])}, {rule['side']} {rule['threshold']}), and trend signals "
+                              f"in chop are skipped. Otherwise: " + out["instruction"])
     return out
 
 
-ORDER = {"entry": 0, "exit": 1, "holding": 2, "armed": 3, "watching": 4}
+ORDER = {"entry": 0, "exit": 1, "holding": 2, "armed": 3, "held": 4, "watching": 5}
 
 
 def live(market: str, root: str = ".", fetch=None, workers: int = 4) -> dict:
@@ -579,6 +589,8 @@ def live(market: str, root: str = ".", fetch=None, workers: int = 4) -> dict:
     if not doc or not mdoc:
         return {"market": market, "signals": [], "untested": [], "scanned": False}
     model = Model(mdoc)
+    from bot.sigen_regime import active
+    filt = active(root)
     cfg = configs()[market]
     if fetch is None:
         from bot.data import fetch_closed, public_client
@@ -590,7 +602,7 @@ def live(market: str, root: str = ".", fetch=None, workers: int = 4) -> dict:
         try:
             spec = StrategySpec.from_dict(r["chosen"]["spec"])
             df = fetch(r["symbol"], TIMEFRAME, warmup_bars(spec) + 300)
-            return signal_for(r, model, df, cfg)
+            return signal_for(r, model, df, cfg, filt)
         except Exception as e:
             return {"coin": r["coin"], "error": repr(e)[:200]}
 
@@ -611,6 +623,7 @@ def live(market: str, root: str = ".", fetch=None, workers: int = 4) -> dict:
     errors = [s for s in sigs if "error" in s]
     hold = mdoc["holdout"]
     return {"market": market, "scanned": True, "generated_at": doc["generated_at"], "coins": doc["coins"],
+            "regime_filter": filt,
             "universe_source": doc.get("universe_source"), "signals": good, "untested": untested, "errors": errors,
             "model": {k: mdoc[k] for k in ("trained_on", "coins", "base_rate", "di_threshold", "trained_at",
                                            "importance")} | {"holdout": hold}}

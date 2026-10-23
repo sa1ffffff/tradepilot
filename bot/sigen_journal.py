@@ -42,7 +42,7 @@ _lock = threading.Lock()   # the console logs from its recorder thread and from 
 
 FROZEN = ("market", "coin", "symbol", "direction", "strategy", "label", "spec", "timeframe", "entry_bar",
           "signal_time", "valid_from", "valid_until", "entry", "target", "chase_limit", "trail", "exit_rule",
-          "instruction", "rule")
+          "instruction", "rule", "regime")
 
 
 def load(root: str = ".") -> dict:
@@ -58,7 +58,7 @@ def key(s: dict) -> str:
 
 
 def snapshot(s: dict, source: str, scan_at: str | None) -> dict:
-    late = s["state"] != "entry"
+    late = s["state"] == "holding"
     rec = {k: s.get(k) for k in FROZEN}
     rec.update(id=key(s), source=source, late=late and source == "live",
                stop=s.get("initial_stop") or s["stop"],
@@ -83,7 +83,7 @@ def _record(signals, root, source, scan_at):
     journal = load(root)
     added = []
     for s in signals:
-        if s.get("state") not in ("entry", "holding") or not s.get("entry_bar") or s.get("stop") is None:
+        if s.get("state") not in ("entry", "holding", "held") or not s.get("entry_bar") or s.get("stop") is None:
             continue
         k = key(s)
         if k not in journal:
@@ -203,7 +203,22 @@ def summary(rows: list[dict]) -> dict:
                 "win_rate_pct": round(100 * len(won) / len(closed), 1) if closed else None,
                 "tested_win_rate_pct": round(sum(exp) / len(exp), 1) if exp else None,
                 "avg_r": round(float(sum(rr)) / len(rr), 2) if rr else None, "total_r": round(float(sum(rr)), 2) if rr else 0.0}
-    return {src: block([r for r in rows if r["source"] == src]) for src in ("live", "replay")}
+    def trial(rs):
+        """The regime filter's shadow trial: trend signals it would hold back vs the rest."""
+        closed = [r for r in rs if r["outcome"]["status"] in ("won", "lost", "flat") and (r.get("regime") or {}).get("trend_strategy")]
+        out = {}
+        for k, part in (("would_hold", [r for r in closed if r["regime"]["would_hold"]]),
+                        ("kept", [r for r in closed if not r["regime"]["would_hold"]])):
+            rr = [r["outcome"]["result_r"] for r in part]
+            out[k] = {"closed": len(rr), "avg_r": round(float(sum(rr)) / len(rr), 2) if rr else None,
+                      "total_r": round(float(sum(rr)), 2), "won": int(sum(v > FLAT_R for v in rr))}
+        from bot.sigen_regime import TRIAL_MIN
+        out["enough"] = min(out["would_hold"]["closed"], out["kept"]["closed"]) >= TRIAL_MIN
+        out["needed"] = TRIAL_MIN
+        return out
+
+    return {src: {**block([r for r in rows if r["source"] == src]),
+                  "trial": trial([r for r in rows if r["source"] == src])} for src in ("live", "replay")}
 
 
 def report(root: str = ".", fetch=None) -> dict:
@@ -248,11 +263,13 @@ def backfill(root: str = ".", days: int = 30, fetch=None) -> int:
         client = public_client(cfgs["spot"].okx_hostname)
         fetch = lambda s, tf, n: fetch_closed(client, s, tf, n)  # noqa: E731
     models = {m: sigen.Model(sigen.read(root, f"model_{m}.json")) for m in sigen.MARKETS}
+    from bot.sigen_regime import active
+    filt = active(root)
     with _lock:
-        return _backfill(doc, cfgs, fetch, models, root, days)
+        return _backfill(doc, cfgs, fetch, models, root, days, filt)
 
 
-def _backfill(doc, cfgs, fetch, models, root, days):
+def _backfill(doc, cfgs, fetch, models, root, days, filt):
     from bot.engine import simulate, simulate_ls
     from bot.strategies import StrategySpec, signals, signals_ls, warmup_bars
     journal = load(root)
@@ -277,8 +294,8 @@ def _backfill(doc, cfgs, fetch, models, root, days):
                 continue
             i = times.get_indexer([t.entry_time])[0]
             window = df.iloc[max(0, i + 1 - live_window):i + 1].reset_index(drop=True)
-            s = sigen.signal_for(res, models[m], window, cfg)   # exactly what the page showed then
-            if s["state"] != "entry" or key(s) in journal:
+            s = sigen.signal_for(res, models[m], window, cfg, filt)   # exactly what the page showed then
+            if s["state"] not in ("entry", "held") or key(s) in journal:
                 continue
             journal[key(s)] = snapshot(s, "replay", doc["generated_at"])
             added += 1

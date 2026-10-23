@@ -182,3 +182,19 @@ dialog .sg-terms-text { margin-top: 0; max-height: 55vh; overflow-y: auto; text-
 }
 
 a.btn { text-decoration: none; }
+
+/* regime */
+.sg-regime-note { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 18px; color: var(--on-warn-container); background: color-mix(in srgb, var(--warn-container) 70%, transparent); padding: 8px 12px; border-radius: var(--r-m); }
+.sg-regime-note .icon { font-size: 18px; color: var(--warn); }
+.sg-regime-note b { font-weight: 600; }
+.sg-regime { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 6px; }
+.sg-regime > div { display: grid; gap: 1px; }
+.sg-regime .k { color: var(--ink-2); font-size: 12px; line-height: 16px; }
+.sg-regime .v { font-size: 17px; line-height: 24px; font-weight: 500; }
+.sg-regime .d { color: var(--ink-3); font-size: 12px; line-height: 16px; }
+.sg-trial { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sg-trial > div { padding: 14px 16px; border-radius: var(--r-l); background: var(--surface-1); }
+.sg-trial .k { color: var(--ink-2); font-size: 12px; line-height: 16px; }
+.sg-trial .v { font-size: 22px; line-height: 30px; font-weight: 500; margin-top: 2px; }
+.sg-trial .d { color: var(--ink-3); font-size: 12px; line-height: 16px; }
+@media (max-width: 760px) { .sg-regime { grid-template-columns: minmax(0, 1fr); } .sg-trial { grid-template-columns: minmax(0, 1fr); } }

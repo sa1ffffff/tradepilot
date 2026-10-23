@@ -125,6 +125,7 @@ const STATE: Record<Signal['state'], { label: string; icon: string; tone: string
   exit: { label: 'Exit now', icon: 'logout', tone: 'warn' },
   holding: { label: 'In play', icon: 'trending_up', tone: 'ok' },
   armed: { label: 'Waiting for trigger', icon: 'hourglass_top', tone: '' },
+  held: { label: 'Held back', icon: 'pause_circle', tone: 'warn' },
   watching: { label: 'Watching', icon: 'visibility', tone: '' }
 };
 
@@ -180,6 +181,44 @@ function Levels({ s }: { s: Signal }) {
   );
 }
 
+const MEASURE: Record<string, string> = {
+  er_30: 'efficiency ratio over 30 candles', er_60: 'efficiency ratio over 60 candles', chop_14: 'choppiness index',
+  adx_14: 'ADX', btc_er_30: 'the BTC efficiency ratio', btc_chop_14: 'the BTC choppiness index'
+};
+const ruleText = (r: { measure: string; side: string; threshold: number }) => `${MEASURE[r.measure] || r.measure} ${r.side === 'below' ? 'under' : 'over'} ${r.threshold}`;
+
+/** One line on the ticket when the market is choppy and the filter (on or in trial) would hold it back. */
+function RegimeNote({ s }: { s: Signal }) {
+  const g = s.regime;
+  if (!g || !g.would_hold || s.state === 'held') return null;
+  return (
+    <div className="sg-regime-note"><Icon name="waves" /><span><b>Choppy market.</b> The regime filter would hold this back. It is only on trial, so the signal stands.</span></div>
+  );
+}
+
+function RegimeSection({ s }: { s: Signal }) {
+  const g = s.regime;
+  if (!g) return null;
+  const er = g.er_30;
+  const read = er === null ? 'not enough candles' : er < 0.2 ? 'choppy: price went back and forth' : er < 0.35 ? 'mixed' : 'trending cleanly';
+  return (
+    <section className="tonal side-col">
+      <h4><Icon name="waves" />Market regime</h4>
+      <div className="sg-regime num">
+        <div><span className="k">Efficiency, 30 candles</span><span className="v">{er ?? '—'}</span><span className="d">{read}</span></div>
+        <div><span className="k">Choppiness index</span><span className="v">{g.chop_14 ?? '—'}</span><span className="d">over 61.8 reads as range-bound</span></div>
+        <div><span className="k">ADX</span><span className="v">{g.adx_14 ?? '—'}</span><span className="d">under 20 reads as no trend</span></div>
+      </div>
+      <p className="muted t-small" style={{ marginTop: 8 }}>
+        {!g.trend_strategy ? 'This is a mean-reversion strategy, which wants chop, so the regime filter never applies to it.'
+          : g.mode === 'on' ? (g.held_back ? `Held back: ${ruleText(g.rule!)}.` : `The regime filter is on and this market passes it (${ruleText(g.rule!)} would hold it back).`)
+          : g.mode === 'shadow' ? `The regime filter is off: it failed its test (see How SiGen decides). A candidate rule, ${ruleText(g.rule!)}, is on trial and ${g.would_hold ? 'would hold this signal back' : 'would let this signal through'}. The history page tracks whether it would have helped.`
+          : 'No regime filter is set.'}
+      </p>
+    </section>
+  );
+}
+
 /** When a signal can be acted on, in the viewer's own time, plus the price beyond which it's too late. */
 export function Validity({ s }: { s: Signal }) {
   const beyond = s.direction === 'short' ? 'below' : 'above';
@@ -216,6 +255,7 @@ function SignalTicket({ s, onOpen, now }: { s: Signal; onOpen: () => void; now: 
       </div>
       <div className="sg-action"><Icon name={dir === 'exit' ? 'logout' : dir === 'short' ? 'south_east' : 'north_east'} />{s.action}</div>
       <p className="sg-instruction">{s.instruction}</p>
+      <RegimeNote s={s} />
       <Validity s={s} />
       <Levels s={s} />
       <div className="sg-scores">
@@ -345,6 +385,8 @@ function SignalSheet({ s, onClose, now }: { s: Signal | null; onClose: () => voi
             </ul>
           </section>
 
+          <RegimeSection s={t} />
+
           <section className="tonal side-col">
             <h4><Icon name="psychology" />How confident, and why</h4>
             <div className="sg-why">
@@ -398,6 +440,21 @@ function ScanProgress({ scan }: { scan: SigenStatus['scan'] }) {
   );
 }
 
+function RegimeStep({ ev }: { ev: SigenStatus['regime'] }) {
+  if (!ev) return null;
+  const v = ev.validation;
+  return (
+    <li><Icon name="waves" /><div><b>Regime filter: {ev.enabled ? 'on' : 'off'}.</b>{' '}
+      {ev.enabled && ev.rule ? `Trend signals are held back when ${ruleText(ev.rule)}.` : <>
+        It was meant to hold back trend signals in choppy markets. Tested on {ev.trades.toLocaleString()} past out-of-sample signals ({ev.trend_trades.toLocaleString()} from trend strategies): a rule ({ev.rule ? ruleText(ev.rule) : '—'}) was set on signals before {new Date(ev.calibrate_until).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })} and checked on the {v?.all.trades.toLocaleString()} after.
+        {v && <> On those it changed the average result by {v.gain_r > 0 ? '+' : ''}{v.gain_r.toFixed(3)}R per signal. The ones it would have skipped averaged {v.held_back.avg_r?.toFixed(2)}R, better than the {v.kept.avg_r?.toFixed(2)}R it kept, because breakouts from quiet markets start the big trends.</>}
+        {ev.replay && <> It would have looked good on the last 30 days ({ev.replay.all.total_r}R became {ev.replay.kept.total_r}R), which is why a short replay can't be the test.</>}
+        {ev.shadow && <> A candidate ({ruleText(ev.shadow)}) is on trial: live signals are tagged, not blocked, until there is enough fresh evidence.</>}
+      </>}
+    </div></li>
+  );
+}
+
 function MethodPanel({ data, status, onTerms }: { data?: SigenSignals; status: SigenStatus; onTerms: () => void }) {
   const m = data?.model;
   return (
@@ -408,6 +465,7 @@ function MethodPanel({ data, status, onTerms }: { data?: SigenSignals; status: S
           <li><Icon name="leaderboard" /><div><b>The coins.</b> The 25 largest (ranked by {data?.universe_source || 'CoinGecko market cap'}) that OKX lists as both spot and perpetual futures. Stablecoins and metal tokens are left out.</div></li>
           <li><Icon name="science" /><div><b>The test.</b> Every strategy the bots use runs a walk-forward test on each coin, with trading costs: tuned on the past, scored on the next 7 months, four times over. A coin gets signals only from a strategy that passes the bots' own bar: at least 30 trades, profit factor 1.2 or more, and 3 of 4 periods profitable.</div></li>
           <li><Icon name="psychology" /><div><b>The AI.</b> A model trained on {m ? m.trained_on.toLocaleString() : 'every'} tested trades across {m?.coins ?? 25} coins learns which conditions came before winners. A dissimilarity check flags markets it hasn't seen.</div></li>
+          <RegimeStep ev={status.regime} />
           <li><Icon name="speed" /><div><b>Confidence</b> (0–100) is how strongly the evidence backs a signal: High is 80 or more, Medium 60 to 79. It is not a win chance. Most of these strategies win fewer than half their trades and make their money on larger wins, so even High signals lose often. Accuracy, next to it, is the win rate.</div></li>
           <li><Icon name="schedule" /><div><b>The signal.</b> On every closed 4h candle the strategy is replayed to the latest bar. That gives the action, stop-loss, target and exit rule.</div></li>
         </ul>
@@ -478,6 +536,7 @@ export function Sigen({ route, go, now }: { route: Extract<Route, { page: 'sigen
   const armed = signals.filter(s => s.state === 'armed')
     .sort((a, b) => Math.abs((a.entry ?? a.price) / a.price - 1) - Math.abs((b.entry ?? b.price) / b.price - 1));
   const watching = signals.filter(s => s.state === 'watching');
+  const held = signals.filter(s => s.state === 'held');
 
   return (
     <div className="grid" style={{ gap: 16 }}>
@@ -530,6 +589,13 @@ export function Sigen({ route, go, now }: { route: Extract<Route, { page: 'sigen
             <section className="panel">
               <div className="panel-head"><div><h3>Waiting for a trigger <span className="count num">{armed.length}</span></h3><div className="sub">Each becomes a signal if the 4h candle closing {armed[0] ? `${clock(armed[0].valid_until)} ${tzName(new Date(armed[0].valid_until))}` : 'next'} ends beyond its trigger. Closest first.</div></div></div>
               <ArmedTable rows={armed} onOpen={open} selected={route.coin} />
+            </section>
+          )}
+
+          {held.length > 0 && (
+            <section className="panel">
+              <div className="panel-head"><div><h3>Held back <span className="count num">{held.length}</span></h3><div className="sub">Trend signals the regime filter skipped because the market is choppy</div></div></div>
+              <ArmedTable rows={held} onOpen={open} selected={route.coin} />
             </section>
           )}
 

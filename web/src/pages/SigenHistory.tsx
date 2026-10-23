@@ -58,6 +58,33 @@ function Kpis({ s, label }: { s: JournalSummary; label: string }) {
   );
 }
 
+/** The regime filter's shadow trial: trend signals it would have held back vs the ones it would keep. */
+function Trial({ s, source }: { s: JournalSummary; source: 'live' | 'replay' }) {
+  const t = s.trial;
+  if (!t) return null;
+  const side = (k: 'would_hold' | 'kept', name: string, d: string) => {
+    const x = t[k];
+    return (
+      <div><div className="k">{name}</div>
+        <div className={`v num ${toneR(x.avg_r)}`}>{x.avg_r === null ? '—' : `${fmtR(x.avg_r)} avg`}</div>
+        <div className="d num">{x.closed} closed · {x.won} correct · total {fmtR(x.total_r)}{d ? ` · ${d}` : ''}</div></div>
+    );
+  };
+  const n = Math.min(t.would_hold.closed, t.kept.closed);
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><h3>Regime filter trial</h3>
+        <div className="sub">{source === 'live'
+          ? (t.enough ? 'Enough closed trend signals on both sides to judge the filter on live data.' : `Collecting evidence: ${n} of ${t.needed} closed trend signals on the smaller side before this means anything.`)
+          : 'On the replay (hindsight; a demonstration only).'}</div></div></div>
+      <div className="panel-body sg-trial">
+        {side('would_hold', 'Signals it would have held back', 'in choppy markets')}
+        {side('kept', 'Signals it would have kept', '')}
+      </div>
+    </section>
+  );
+}
+
 function ReportSheet({ r, onClose }: { r: JournalRow | null; onClose: () => void }) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState<JournalRow | null>(r);
@@ -222,6 +249,8 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
         <Kpis s={rep.summary[src]} label={src === 'live' ? 'Live' : 'Replayed'} />
       </section>
 
+      <Trial s={rep.summary[src]} source={src} />
+
       <section className="panel">
         <div className="toolbar">
           <div className="filter-chips">
@@ -257,7 +286,7 @@ export function SigenHistory({ route, go, now }: { route: Extract<Route, { page:
                     <td className="r num hide-sm down">{price(r.stop)}</td>
                     <td><OutcomeChip o={r.outcome} /></td>
                     <td className={`r num ${toneR(r.outcome.result_r ?? r.outcome.r_now)}`} style={{ fontWeight: 500 }}>{fmtR(r.outcome.result_r ?? r.outcome.r_now)}{r.outcome.status === 'open' && <span className="faint t-small"> so far</span>}</td>
-                    <td className="muted hide-sm">{r.outcome.status === 'open' ? `${r.outcome.bars_held} candles in` : ENDED[r.outcome.exit_reason || ''] || '—'}</td>
+                    <td className="muted hide-sm">{r.outcome.status === 'open' ? `${r.outcome.bars_held} candles in` : ENDED[r.outcome.exit_reason || ''] || '—'}{r.regime?.would_hold && <span className="faint" title="The regime filter would have held this back"> · choppy</span>}</td>
                   </tr>
                 ))}
               </tbody>

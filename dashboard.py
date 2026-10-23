@@ -493,7 +493,16 @@ def sigen_status() -> dict:
         prog = {**prog, "state": "error", "error": "The scan stopped before it finished. "
                 + " ".join(tail(os.path.join(HERE, "logs", "sigen_scan.out"), 1))}
     scan = sigen.read(HERE, "scan.json")
-    return {"terms": sigen.acceptance(HERE), "terms_text": sigen.TERMS, "scan": prog,
+    from bot import sigen_regime
+    rg = sigen_regime.load(HERE)
+    regime = {k: rg.get(k) for k in ("enabled", "reason", "rule", "shadow", "trades", "trend_trades", "from", "to",
+                                     "calibrate_until", "checks", "generated_at")}
+    if rg.get("validation"):
+        v = rg["validation"]
+        regime["validation"] = {k: v[k] for k in ("all", "kept", "held_back", "gain_r", "luck_beaten_pct")}
+    if rg.get("replay", {}).get("signals"):
+        regime["replay"] = rg["replay"]
+    return {"terms": sigen.acceptance(HERE), "terms_text": sigen.TERMS, "scan": prog, "regime": regime if rg else None,
             "generated_at": scan.get("generated_at"), "coins": scan.get("coins", [])}
 
 
