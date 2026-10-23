@@ -307,8 +307,8 @@ def analyse(df: pd.DataFrame, spec: StrategySpec, timeframe: str, position: dict
         if prices:
             level, _ = (max if direction > 0 else min)(prices)
             if len(prices) > 1:
-                trigger = (f"a close {sd.above} {fmt(level)} ({sd.dist(level)}), "
-                           f"which clears the {' and the '.join(n for _, n in prices)}")
+                both = "both" if len(prices) == 2 else f"all {len(prices)}"
+                trigger = f"a close {sd.above} {fmt(level)} ({sd.dist(level)}), which meets {both} price conditions"
         if trigger.startswith("conditions met") and not fired:
             trigger = "the trigger fired, but the " + " and ".join(blocked or ["warm-up"]) + " blocked it"
         sides[key] = {"checks": checks, "ready": fired, "trigger": trigger, "exit": exit_text, "trigger_level": level,

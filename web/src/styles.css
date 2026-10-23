@@ -391,7 +391,7 @@ table.data tbody tr.clickable { cursor: pointer; transition: background-color 12
 @media (hover: hover) and (pointer: fine) { table.data tbody tr.clickable:hover { background: var(--surface-1); } }
 table.data tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 .sym { display: flex; align-items: center; gap: 10px; }
-.sym .coin {
+.coin {
   width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
   font-size: 11px; font-weight: 600; letter-spacing: 0; flex: none;
   background: var(--surface-2); color: var(--ink);

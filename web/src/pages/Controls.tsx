@@ -12,6 +12,14 @@ const VERDICT = {
   unlikely: { tone: 'bad', label: 'Unlikely', color: 'var(--down)' }
 } as const;
 
+function waitText(days: number | null): string {
+  if (!days) return 'Never in the model';
+  if (days < 2) return '1–2 days';
+  if (days < 60) return `About ${Math.round(days)} days`;
+  if (days < 730) return `About ${Math.round(days / 30)} months`;
+  return `About ${(days / 365).toFixed(0)} years`;
+}
+
 function TargetCard({ status, refresh }: { status: Status; refresh: () => void }) {
   const current = status.target.daily_target_usd;
   const [usdIn, setUsdIn] = useState(current ? String(current) : '');
@@ -89,7 +97,7 @@ function TargetCard({ status, refresh }: { status: Status; refresh: () => void }
               <div className="meter"><span style={{ width: `${Math.max(1, a.p_hit_day * 100)}%`, background: v.color }} /></div>
             </div>
             <div className="stat-row num">
-              <div><div className="k">Typical wait for a hit</div><div className="v">{a.days_to_first_hit ? `${a.days_to_first_hit < 2 ? '1–2' : Math.round(a.days_to_first_hit)} days` : 'Never in the model'}</div></div>
+              <div><div className="k">Typical wait for a hit</div><div className="v">{waitText(a.days_to_first_hit)}</div></div>
               <div><div className="k">Average day</div><div className={`v ${a.expected_day_usd >= 0 ? 'up' : 'down'}`}>{usd(a.expected_day_usd, true)}</div></div>
               <div><div className="k">Days with no trade</div><div className="v">{Math.round(a.p_no_trade_day * 100)}%</div></div>
             </div>
