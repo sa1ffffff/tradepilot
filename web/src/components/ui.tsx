@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import CountUp from './rb/CountUp/CountUp';
 import { coin } from '../lib/format';
 
@@ -45,7 +45,7 @@ export function Chip({ tone = '', icon, children, title }: { tone?: string; icon
 export function Coin({ symbol, size }: { symbol: string; size?: number }) {
   const c = coin(symbol);
   return (
-    <span className="coin" style={size ? { width: size, height: size } : undefined} aria-hidden>
+    <span className={`coin${c.length >= 4 ? ' long-ticker' : ''}`} style={size ? { width: size, height: size } : undefined} aria-hidden>
       {c.length > 4 ? c.slice(0, 3) : c}
     </span>
   );
@@ -124,6 +124,7 @@ export function FilterChip({ on, onClick, children, count, icon }: { on: boolean
 /** Native <dialog>: focus trap, Esc and backdrop handled by the browser. */
 export function Dialog({ open, onClose, icon, title, children, actions }: { open: boolean; onClose: () => void; icon?: string; title: string; children: ReactNode; actions: ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -136,11 +137,11 @@ export function Dialog({ open, onClose, icon, title, children, actions }: { open
       className="dlg"
       onClose={onClose}
       onClick={e => { if (e.target === ref.current) onClose(); }}
-      aria-labelledby="dlg-title"
+      aria-labelledby={titleId}
     >
       <div className="dlg-in">
         {icon && <Icon name={icon} className="hero-icon" />}
-        <h3 id="dlg-title">{title}</h3>
+        <h3 id={titleId}>{title}</h3>
         <div className="body">{children}</div>
         <div className="dlg-actions">{actions}</div>
       </div>

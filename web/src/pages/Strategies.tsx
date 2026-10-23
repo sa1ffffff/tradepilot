@@ -64,7 +64,7 @@ export function Evidence({ slot }: { slot: Slot }) {
   return (
     <section className="panel" aria-labelledby="ev-h">
       <div className="panel-head">
-        <div><h3 id="ev-h">Research evidence</h3><div className="sub">Out-of-sample walk-forward, about 3 years, after costs. Past results, not a forecast.</div></div>
+        <div><h3 id="ev-h">Research evidence</h3><div className="sub">Out-of-sample walk-forward, about 3 years, after costs, at {(slot.risk_fraction * 100).toFixed(0)}% risk per trade. Past results, not a forecast.</div></div>
         <Chip tone={e.verdict === 'CANDIDATE' ? 'ok' : 'warn'}>{e.verdict === 'CANDIDATE' ? 'Passed' : e.verdict}</Chip>
       </div>
       <div className="facts num">
@@ -74,7 +74,6 @@ export function Evidence({ slot }: { slot: Slot }) {
         <div className="fact"><div className="k">Trades</div><div className="v">{e.trades}</div></div>
         <div className="fact"><div className="k">Max drawdown</div><div className="v">{e.max_drawdown_pct}%</div></div>
         <div className="fact"><div className="k">Segments profitable</div><div className="v">{e.folds_positive} of 4</div></div>
-        <div className="fact"><div className="k">Risk per trade</div><div className="v">{(slot.risk_fraction * 100).toFixed(0)}% of equity</div></div>
       </div>
     </section>
   );

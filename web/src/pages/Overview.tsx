@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { BaselineSeries, ColorType, createChart, type UTCTimestamp } from 'lightweight-charts';
 import type { ConsoleData, Route } from '../lib/store';
 import { coin, reasonLabel, r as fmtR, strategyName, time, tone, until, usd } from '../lib/format';
-import { BotPanel } from '../components/Bots';
+import { BotHero } from '../components/Bots';
 import { Positions } from '../components/Positions';
 import { MoodTag, TriggerGauge } from '../components/Thinking';
 import { Btn, Coin, Empty, Icon, Money, SideTag, Skeleton } from '../components/ui';
@@ -18,14 +18,18 @@ function EquityCurve({ points }: { points: [string, number][] }) {
       layout: { background: { type: ColorType.Solid, color: v('--surface') }, textColor: v('--ink-3'), fontFamily: v('--font'), fontSize: 11, attributionLogo: false },
       grid: { vertLines: { color: 'transparent' }, horzLines: { color: v('--line') } },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false, timeVisible: false },
+      timeScale: {
+        borderVisible: false, timeVisible: true,
+        // a date where the day changes, the hour in between
+        tickMarkFormatter: (t: number, kind: number) => new Date(t * 1000).toLocaleString([], kind < 3 ? { month: 'short', day: 'numeric' } : { hour: 'numeric' })
+      },
       handleScroll: false, handleScale: false, crosshair: { vertLine: { labelVisible: false } }
     });
     const series = chart.addSeries(BaselineSeries, {
       baseValue: { type: 'price', price: 0 },
       topLineColor: v('--up'), topFillColor1: v('--up') + '33', topFillColor2: v('--up') + '05',
       bottomLineColor: v('--down'), bottomFillColor1: v('--down') + '05', bottomFillColor2: v('--down') + '33',
-      lineWidth: 2, priceLineVisible: false
+      lineWidth: 2, priceLineVisible: false, lastValueVisible: false
     });
     const seen = new Set<number>();
     const data = [{ t: new Date(points[0][0]).getTime() / 1000 - 3600, v: 0 }, ...points.map(([t, val]) => ({ t: new Date(t).getTime() / 1000, v: val }))]
@@ -57,13 +61,6 @@ export function Overview({ data, go, now }: { data: ConsoleData; go: (r: Route) 
 
   return (
     <div className="grid" style={{ gap: 16 }}>
-      {!anyRunning && (
-        <div className="banner">
-          <Icon name="pause_circle" />
-          <div className="grow"><b>Both bots are stopped.</b> Nothing is being traded. The analysis below is still live: it shows what each strategy would do.</div>
-          <div className="actions"><Btn kind="text" small onClick={() => go({ page: 'controls' })}>Controls</Btn></div>
-        </div>
-      )}
       {s.kill_switch && (
         <div className="banner warn"><Icon name="block" /><div className="grow"><b>New entries are paused.</b> Open positions are still managed and can exit.</div>
           <div className="actions"><Btn kind="text" small onClick={() => go({ page: 'controls' })}>Change</Btn></div></div>
@@ -73,6 +70,13 @@ export function Overview({ data, go, now }: { data: ConsoleData; go: (r: Route) 
       )}
       {s.health.status === 'ATTENTION' && (
         <div className="banner bad"><Icon name="error" /><div className="grow"><b>Health check: needs attention.</b> {s.health.lines[0]}</div></div>
+      )}
+
+      <BotHero status={s} overview={overview} refresh={data.refresh} now={now} go={go} />
+      {!anyRunning && (
+        <p className="hero-note muted t-small">
+          <Icon name="info" /> Both bots are stopped, so nothing is being traded. The analysis below is still live: it shows what each strategy would do.
+        </p>
       )}
 
       <section className="panel kpis" aria-label="Profit and loss">
@@ -137,7 +141,6 @@ export function Overview({ data, go, now }: { data: ConsoleData; go: (r: Route) 
         </div>
 
         <div className="grid" style={{ gap: 16 }}>
-          <BotPanel status={s} refresh={data.refresh} now={now} />
           <section className="panel" aria-labelledby="curve-h">
             <div className="panel-head">
               <div><h3 id="curve-h">Realized P&amp;L</h3><div className="sub">Cumulative, after fees, both bots</div></div>

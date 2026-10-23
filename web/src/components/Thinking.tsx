@@ -30,38 +30,38 @@ export function MoodTag({ mood }: { mood?: Analysis['mood'] }) {
 }
 
 /**
- * Where price sits between the short trigger (left) and the long trigger (right).
- * A one-sided strategy shows how close price is to its single trigger.
+ * A price rail centred on the last close: a tick for "now" and a dashed tick for each
+ * side's trigger, on a real % scale (the same levels the chart draws as dashed lines).
  */
 export function TriggerGauge({ close, sides }: { close: number; sides: Analysis['sides'] }) {
-  const lt = triggerLevel(sides.long);
-  const st = triggerLevel(sides.short);
   const d = (lv: number) => (lv / close - 1) * 100;
   const fmt = (v: number) => `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
-  if (lt === null && st === null) {
-    return <div className="rail-gauge"><div className="legend"><span>No price trigger: waits on an indicator</span></div></div>;
-  }
-  if (lt !== null && st !== null && lt > close && st < close) {
-    const pos = ((close - st) / (lt - st)) * 100;
-    return (
-      <div className="rail-gauge" role="img" aria-label={`Long trigger ${fmt(d(lt))} away, short trigger ${fmt(d(st))} away`}>
-        <div className="track">
-          <span className="fill short" style={{ left: 0, width: `${Math.max(2, pos)}%`, opacity: 0.28 }} />
-          <span className="fill long" style={{ left: `${pos}%`, width: `${Math.max(2, 100 - pos)}%`, opacity: 0.28 }} />
-          <span className="mid" style={{ left: `${pos}%` }} />
-        </div>
-        <div className="legend num"><span>Short <b>{fmt(d(st))}</b></span><span>Long <b>{fmt(d(lt))}</b></span></div>
-      </div>
-    );
-  }
-  const lv = (lt ?? st) as number;
-  const side = lt !== null ? 'long' : 'short';
-  const away = Math.abs(d(lv));
-  const near = Math.max(4, 100 - Math.min(away / 8, 1) * 100);
+  const marks = (['long', 'short'] as const)
+    .filter(k => sides[k])
+    .map(k => ({ side: k, level: triggerLevel(sides[k]) }));
+  const dists = marks.filter(m => m.level !== null).map(m => Math.abs(d(m.level as number)));
+  const w = Math.max(8, 1.2 * Math.max(0, ...dists));
+  const x = (pct: number) => 50 + (pct / w) * 50;
+  const label = marks.map(m => (m.level === null ? `${m.side} waits on an indicator` : `${m.side} trigger ${fmt(d(m.level))} at ${price(m.level)}`)).join('; ');
   return (
-    <div className="rail-gauge" role="img" aria-label={`${side} trigger ${fmt(d(lv))} away at ${price(lv)}`}>
-      <div className="track"><span className={`fill ${side}`} style={{ left: 0, width: `${near}%` }} /></div>
-      <div className="legend num"><span>{side === 'long' ? 'Long' : 'Short'} trigger {price(lv)}</span><b>{fmt(d(lv))}</b></div>
+    <div className="rail-gauge" role="img" aria-label={label}>
+      <div className="track">
+        {marks.map(m => m.level !== null && (
+          <span key={m.side} className={`gap ${m.side}`}
+            style={{ left: `${Math.min(50, x(d(m.level)))}%`, width: `${Math.abs(x(d(m.level)) - 50)}%` }} />
+        ))}
+        {marks.map(m => m.level !== null && (
+          <span key={m.side + 't'} className={`tick ${m.side}`} style={{ left: `${x(d(m.level))}%` }} />
+        ))}
+        <span className="now" style={{ left: '50%' }} />
+      </div>
+      <div className="legend num">
+        {marks.map(m => (
+          <span key={m.side} className={m.side}>
+            {m.side === 'long' ? 'Long' : 'Short'} {m.level === null ? <i title="Waits on an indicator, not a price">no price trigger</i> : <b>{fmt(d(m.level))}</b>}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

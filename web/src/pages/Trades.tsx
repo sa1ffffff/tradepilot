@@ -61,7 +61,7 @@ function TradeSheet({ trade, onClose }: { trade: Trade | null; onClose: () => vo
           <Btn kind="ghost" iconOnly icon="close" title="Close" onClick={onClose} />
         </div>
         <div className="sheet-body">
-          <div className="facts num" style={{ margin: '0 -24px' }}>
+          <div className="facts three num" style={{ margin: '0 -24px' }}>
             <div className="fact"><div className="k">Entry</div><div className="v">{price(t.entry)}</div><div className="t-small faint">{time(t.entry_time)}</div></div>
             <div className="fact"><div className="k">Exit</div><div className="v">{price(t.exit)}</div><div className="t-small faint">{time(t.exit_time)}</div></div>
             <div className="fact"><div className="k">Held</div><div className="v">{duration(t.entry_time, t.exit_time)}</div></div>

@@ -68,11 +68,11 @@ function TargetCard({ status, refresh }: { status: Status; refresh: () => void }
         <div className="grid cols-2" style={{ gap: 12 }}>
           <div className="field">
             <label htmlFor="tgt">Target for the day</label>
-            <div className="box"><span className="affix">$</span><input id="tgt" inputMode="decimal" type="number" min="0" step="1" value={usdIn} onChange={e => setUsdIn(e.target.value)} placeholder="15" /></div>
+            <div className="box"><span className="affix">$</span><input id="tgt" inputMode="decimal" type="number" min="0" step="1" value={usdIn} onChange={e => setUsdIn(e.target.value)} placeholder="e.g. 20" /></div>
           </div>
           <div className="field">
             <label htmlFor="funds">Funds in the account</label>
-            <div className="box"><span className="affix">$</span><input id="funds" inputMode="decimal" type="number" min="0" step="10" value={funds} onChange={e => setFunds(e.target.value)} placeholder="100" /></div>
+            <div className="box"><span className="affix">$</span><input id="funds" inputMode="decimal" type="number" min="0" step="10" value={funds} onChange={e => setFunds(e.target.value)} placeholder="Your demo balance" /></div>
             <span className="help">{status.equity.futures ? `Last seen by the futures bot: ${usd(status.equity.futures)}` : 'Start the futures bot to fill this in automatically.'}</span>
           </div>
         </div>
@@ -82,6 +82,7 @@ function TargetCard({ status, refresh }: { status: Status; refresh: () => void }
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Btn kind="tonal" icon="analytics" disabled={!valid} busy={loading} onClick={assess}>Assess the risk</Btn>
+          {!valid && <span className="why-disabled">{usdIn === '' || value <= 0 ? 'Enter a target above $0 to assess it.' : 'Enter the funds in the account.'}</span>}
           {current && <Btn kind="text" busy={busy === 'clear'} onClick={() => run('clear', () => api.setTarget(null, false))}>Turn off</Btn>}
         </div>
 
@@ -126,7 +127,9 @@ function TargetCard({ status, refresh }: { status: Status; refresh: () => void }
 
 function KillCard({ status, refresh }: { status: Status; refresh: () => void }) {
   const { busy, run } = useBotActions(refresh);
+  const [resume, setResume] = useState(false);
   const on = status.kill_switch;
+  const running = (['spot', 'futures'] as const).filter(b => status.bots[b].running);
   return (
     <section className="panel" aria-labelledby="kill-h">
       <div className="panel-head"><div><h3 id="kill-h">Safety</h3><div className="sub">Limits that hold no matter what a strategy says</div></div></div>
@@ -136,10 +139,11 @@ function KillCard({ status, refresh }: { status: Status; refresh: () => void }) 
             <div className="t">Pause new entries</div>
             <div className="d">Creates the KILL file. Both bots stop opening trades; stops and exits keep working.</div>
           </div>
-          <Switch danger checked={on} disabled={busy === 'kill'} label="Pause new entries" onChange={v => run('kill', () => api.setKill(v))} />
+          <Switch danger checked={on} disabled={busy === 'kill'} label="Pause new entries"
+            onChange={v => (v ? run('kill', () => api.setKill(true)) : setResume(true))} />
         </div>
         <hr className="divider" />
-        <div className="facts num" style={{ margin: '0 -20px -20px' }}>
+        <div className="facts three num" style={{ margin: '0 -20px -20px' }}>
           <div className="fact"><div className="k">Spot daily loss limit</div><div className="v">{usd(status.limits.spot_daily_loss)}</div></div>
           <div className="fact"><div className="k">Futures daily loss limit</div><div className="v">{usd(status.limits.futures_daily_loss)}</div></div>
           <div className="fact"><div className="k">Spot position cap</div><div className="v">{usd(status.limits.spot_max_notional)}</div></div>
@@ -148,6 +152,15 @@ function KillCard({ status, refresh }: { status: Status; refresh: () => void }) 
           <div className="fact"><div className="k">Max leverage</div><div className="v">{status.limits.futures_max_leverage}×, isolated</div></div>
         </div>
       </div>
+      <Dialog open={resume} onClose={() => setResume(false)} icon="play_circle" title="Allow new entries again?"
+        actions={<>
+          <Btn kind="text" onClick={() => setResume(false)}>Keep paused</Btn>
+          <Btn kind="filled" onClick={() => { setResume(false); run('kill', () => api.setKill(false)); }}>Allow entries</Btn>
+        </>}>
+        <p>{running.length
+          ? `The ${running.join(' and ')} bot${running.length > 1 ? 's' : ''} will open trades again on the next signal.`
+          : 'No bot is running, so nothing trades until you start one.'}</p>
+      </Dialog>
     </section>
   );
 }

@@ -89,6 +89,13 @@ export default function App() {
             <span className="mobile-logo" aria-hidden><Icon name="moving" /></span>
             <h1>Tradepilot</h1>
             <Chip tone="demo" icon="science" title="Simulated trading on OKX demo: no real money">Demo</Chip>
+            {s && (
+              <span className="show-sm">
+                <Chip tone={s.kill_switch ? 'warn' : running === 2 ? 'ok' : running ? 'warn' : ''} icon={s.kill_switch ? 'block' : running ? 'radio_button_checked' : 'radio_button_unchecked'}>
+                  {s.kill_switch ? 'Paused' : running === 2 ? 'Live' : running ? '1 of 2' : 'Off'}
+                </Chip>
+              </span>
+            )}
           </div>
           <span className="grow" />
           {s && (
